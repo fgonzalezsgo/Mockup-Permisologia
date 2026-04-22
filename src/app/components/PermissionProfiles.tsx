@@ -225,7 +225,7 @@ const loadVisualizerAssignments = (): string[] => {
 };
 
 export function PermissionProfiles() {
-  const [activeTab, setActiveTab] = useState<'profiles' | 'visualizer'>('profiles');
+  const [activeTab, setActiveTab] = useState<'profiles' | 'profiles_clone' | 'visualizer'>('profiles');
   const [profiles, setProfiles] = useState<Profile[]>(() => loadStoredProfiles());
   const [booksCatalog, setBooksCatalog] = useState<BookCatalogItem[]>(() => loadStoredBooks());
   const [usersCatalog, setUsersCatalog] = useState<VisualizerAssignableUser[]>(() => loadStoredUsers());
@@ -503,6 +503,8 @@ export function PermissionProfiles() {
     setVisualizerAssignments(loadVisualizerAssignments());
   };
 
+  const isReadonlyProfilesView = activeTab === 'profiles_clone';
+
   return (
     <div className="bg-[#f8f9fb] min-h-screen">
       {/* Header */}
@@ -514,7 +516,7 @@ export function PermissionProfiles() {
                 Perfiles de Permisos
               </h1>
               <p className="text-[#6b7280]">
-                {activeTab === 'profiles'
+                {activeTab === 'profiles' || activeTab === 'profiles_clone'
                   ? 'Gestiona plantillas de permisos predefinidos para asignar a usuarios'
                   : 'Asigna visualizador de forma independiente al perfil principal del usuario'}
               </p>
@@ -541,7 +543,18 @@ export function PermissionProfiles() {
               }`}
               style={{ fontWeight: 600 }}
             >
-              Perfiles
+              Administrar perfiles
+            </button>
+            <button
+              onClick={() => setActiveTab('profiles_clone')}
+              className={`px-4 py-2.5 rounded-lg border transition-colors ${
+                activeTab === 'profiles_clone'
+                  ? 'bg-[#4f46e5] text-white border-[#4f46e5]'
+                  : 'bg-white text-[#374151] border-[#d1d5db] hover:bg-[#f9fafb]'
+              }`}
+              style={{ fontWeight: 600 }}
+            >
+              Ver Perfiles
             </button>
             <button
               onClick={() => setActiveTab('visualizer')}
@@ -559,7 +572,7 @@ export function PermissionProfiles() {
       </div>
       {/* Profiles List */}
       <div className="max-w-7xl mx-auto px-8 pt-8 pb-28">
-        {activeTab === 'profiles' ? (
+        {activeTab === 'profiles' || activeTab === 'profiles_clone' ? (
           <>
             {/* Stats */}
             <div className="grid grid-cols-3 gap-6 mb-8">
@@ -659,13 +672,15 @@ export function PermissionProfiles() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => duplicateProfile(profile.id)}
-                          className="p-2 text-[#6b7280] hover:bg-[#f3f4f6] rounded-lg transition-colors"
-                          title="Duplicar perfil"
-                        >
-                          <Copy className="w-5 h-5" />
-                        </button>
+                        {!isReadonlyProfilesView && (
+                          <button
+                            onClick={() => duplicateProfile(profile.id)}
+                            className="p-2 text-[#6b7280] hover:bg-[#f3f4f6] rounded-lg transition-colors"
+                            title="Duplicar perfil"
+                          >
+                            <Copy className="w-5 h-5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => openEditModal(profile)}
                           className="p-2 text-[#6b7280] hover:bg-[#f3f4f6] rounded-lg transition-colors"
@@ -673,13 +688,15 @@ export function PermissionProfiles() {
                         >
                           <Edit2 className="w-5 h-5" />
                         </button>
-                        <button
-                          onClick={() => deleteProfile(profile.id)}
-                          className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors"
-                          title="Eliminar perfil"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
+                        {!isReadonlyProfilesView && (
+                          <button
+                            onClick={() => deleteProfile(profile.id)}
+                            className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors"
+                            title="Eliminar perfil"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -698,26 +715,33 @@ export function PermissionProfiles() {
                               <h4 className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
                                 Libros del perfil ({profile.bookPermissions.length})
                               </h4>
-                              <button
-                                onClick={() => openAddBooksModal(profile.id, profile.name)}
-                                className="px-3 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 text-sm"
-                                style={{ fontWeight: 500 }}
-                              >
-                                <Plus className="w-4 h-4" />
-                                Agregar Libro
-                              </button>
+                              {!isReadonlyProfilesView ? (
+                                <button
+                                  onClick={() => openAddBooksModal(profile.id, profile.name)}
+                                  className="px-3 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 text-sm"
+                                  style={{ fontWeight: 500 }}
+                                >
+                                  <Plus className="w-4 h-4" />
+                                  Agregar Libro
+                                </button>
+                              ) : (
+                                <span className="text-xs text-[#6b7280]">Solo lectura</span>
+                              )}
                             </div>
 
                             {/* Table Header */}
-                            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-6 px-4 py-3 mb-2 bg-[#f8f9fb] rounded-lg">
+                            <div className={`grid gap-6 px-4 py-3 mb-2 bg-[#f8f9fb] rounded-lg ${
+                              isReadonlyProfilesView ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]'
+                            }`}>
                               <div className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
                                 Libro
                               </div>
                               <div className="flex flex-col items-center gap-1">
                                 <button
-                                  onClick={() => toggleAllPermissions(profile.id, 'read')}
-                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors"
-                                  title="Seleccionar/Deseleccionar todos"
+                                  onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'read')}
+                                  disabled={isReadonlyProfilesView}
+                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
+                                  title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
                                 >
                                   {getPermissionCheckboxState(profile.id, 'read') === 'all' ? (
                                     <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
@@ -733,9 +757,10 @@ export function PermissionProfiles() {
                               </div>
                               <div className="flex flex-col items-center gap-1">
                                 <button
-                                  onClick={() => toggleAllPermissions(profile.id, 'draft')}
-                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors"
-                                  title="Seleccionar/Deseleccionar todos"
+                                  onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'draft')}
+                                  disabled={isReadonlyProfilesView}
+                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
+                                  title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
                                 >
                                   {getPermissionCheckboxState(profile.id, 'draft') === 'all' ? (
                                     <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
@@ -751,9 +776,10 @@ export function PermissionProfiles() {
                               </div>
                               <div className="flex flex-col items-center gap-1">
                                 <button
-                                  onClick={() => toggleAllPermissions(profile.id, 'write')}
-                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors"
-                                  title="Seleccionar/Deseleccionar todos"
+                                  onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'write')}
+                                  disabled={isReadonlyProfilesView}
+                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
+                                  title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
                                 >
                                   {getPermissionCheckboxState(profile.id, 'write') === 'all' ? (
                                     <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
@@ -769,9 +795,10 @@ export function PermissionProfiles() {
                               </div>
                               <div className="flex flex-col items-center gap-1">
                                 <button
-                                  onClick={() => toggleAllPermissions(profile.id, 'acknowledge')}
-                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors"
-                                  title="Seleccionar/Deseleccionar todos"
+                                  onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'acknowledge')}
+                                  disabled={isReadonlyProfilesView}
+                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
+                                  title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
                                 >
                                   {getPermissionCheckboxState(profile.id, 'acknowledge') === 'all' ? (
                                     <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
@@ -785,9 +812,11 @@ export function PermissionProfiles() {
                                   </span>
                                 </button>
                               </div>
-                              <div className="text-sm text-center" style={{ fontWeight: 600, color: '#374151' }}>
-                                Acciones
-                              </div>
+                              {!isReadonlyProfilesView && (
+                                <div className="text-sm text-center" style={{ fontWeight: 600, color: '#374151' }}>
+                                  Acciones
+                                </div>
+                              )}
                             </div>
 
                             {/* Book Rows */}
@@ -798,7 +827,9 @@ export function PermissionProfiles() {
                                   initial={{ opacity: 0, x: -10 }}
                                   animate={{ opacity: 1, x: 0 }}
                                   transition={{ delay: bookIndex * 0.05 }}
-                                  className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-6 px-4 py-4 bg-white rounded-lg border border-[#e1e4e8] items-center"
+                                  className={`grid gap-6 px-4 py-4 bg-white rounded-lg border border-[#e1e4e8] items-center ${
+                                    isReadonlyProfilesView ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]'
+                                  }`}
                                 >
                                   <div style={{ fontWeight: 500, color: '#1f2937' }}>
                                     {book.bookName}
@@ -806,8 +837,9 @@ export function PermissionProfiles() {
 
                                   <div className="flex justify-center">
                                     <button
-                                      onClick={() => togglePermission(profile.id, book.bookId, 'read')}
-                                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${book.permissions.read ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
+                                      onClick={() => !isReadonlyProfilesView && togglePermission(profile.id, book.bookId, 'read')}
+                                      disabled={isReadonlyProfilesView}
+                                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all disabled:opacity-100 disabled:cursor-default ${book.permissions.read ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
                                     >
                                       {book.permissions.read ? (
                                         <Check className="w-5 h-5" strokeWidth={3} />
@@ -819,8 +851,9 @@ export function PermissionProfiles() {
 
                                   <div className="flex justify-center">
                                     <button
-                                      onClick={() => togglePermission(profile.id, book.bookId, 'draft')}
-                                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${book.permissions.draft ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
+                                      onClick={() => !isReadonlyProfilesView && togglePermission(profile.id, book.bookId, 'draft')}
+                                      disabled={isReadonlyProfilesView}
+                                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all disabled:opacity-100 disabled:cursor-default ${book.permissions.draft ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
                                     >
                                       {book.permissions.draft ? (
                                         <Check className="w-5 h-5" strokeWidth={3} />
@@ -832,8 +865,9 @@ export function PermissionProfiles() {
 
                                   <div className="flex justify-center">
                                     <button
-                                      onClick={() => togglePermission(profile.id, book.bookId, 'write')}
-                                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${book.permissions.write ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
+                                      onClick={() => !isReadonlyProfilesView && togglePermission(profile.id, book.bookId, 'write')}
+                                      disabled={isReadonlyProfilesView}
+                                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all disabled:opacity-100 disabled:cursor-default ${book.permissions.write ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
                                     >
                                       {book.permissions.write ? (
                                         <Check className="w-5 h-5" strokeWidth={3} />
@@ -845,8 +879,9 @@ export function PermissionProfiles() {
 
                                   <div className="flex justify-center">
                                     <button
-                                      onClick={() => togglePermission(profile.id, book.bookId, 'acknowledge')}
-                                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${book.permissions.acknowledge ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
+                                      onClick={() => !isReadonlyProfilesView && togglePermission(profile.id, book.bookId, 'acknowledge')}
+                                      disabled={isReadonlyProfilesView}
+                                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all disabled:opacity-100 disabled:cursor-default ${book.permissions.acknowledge ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
                                     >
                                       {book.permissions.acknowledge ? (
                                         <Check className="w-5 h-5" strokeWidth={3} />
@@ -856,15 +891,17 @@ export function PermissionProfiles() {
                                     </button>
                                   </div>
 
-                                  <div className="flex justify-center">
-                                    <button
-                                      onClick={() => removeBookFromProfile(profile.id, book.bookId)}
-                                      className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors"
-                                      title="Eliminar libro del perfil"
-                                    >
-                                      <Trash2 className="w-5 h-5" />
-                                    </button>
-                                  </div>
+                                  {!isReadonlyProfilesView && (
+                                    <div className="flex justify-center">
+                                      <button
+                                        onClick={() => removeBookFromProfile(profile.id, book.bookId)}
+                                        className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors"
+                                        title="Eliminar libro del perfil"
+                                      >
+                                        <Trash2 className="w-5 h-5" />
+                                      </button>
+                                    </div>
+                                  )}
                                 </motion.div>
                               ))}
                             </div>
@@ -1281,6 +1318,3 @@ export function PermissionProfiles() {
     </div>
   );
 }
-
-
-

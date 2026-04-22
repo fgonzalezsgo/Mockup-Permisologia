@@ -1817,7 +1817,7 @@ export function UserPermissions() {
                 style={{ fontWeight: 600 }}
               >
                 <UserPlus className="w-4 h-4" />
-                Crear usuario
+                Asignar Usuario
               </button>
             </div>
           </div>
@@ -1880,7 +1880,7 @@ export function UserPermissions() {
               {users.filter(hasUserPermissionExceptions).length}
             </div>
             <div className="text-sm text-[#6b7280]">
-              Modificados
+              Usuarios con permisos modificados
             </div>
           </motion.div>
         </div>
@@ -2066,6 +2066,9 @@ export function UserPermissions() {
                                         </div>
                                         <div className="text-sm text-[#6b7280] mb-1">
                                           RUN: {user.run}
+                                        </div>
+                                        <div className="text-sm text-[#6b7280] mb-1">
+                                          Cargo: {user.role}
                                         </div>
                                         {user.profileName ? (
                                           <div className="flex items-center gap-1.5">
