@@ -61,6 +61,20 @@ interface BulkCreateDraftUser {
   profileName: string;
 }
 
+interface BulkCreateAssignmentDetail {
+  userName: string;
+  bookName: string;
+  permissions: PermissionSet;
+  note?: string;
+}
+
+interface BulkCreateResultModalData {
+  createdUsers: number;
+  updatedUsers: number;
+  appliedAssignments: BulkCreateAssignmentDetail[];
+  omittedAssignments: BulkCreateAssignmentDetail[];
+}
+
 interface MultiSelectFilterProps {
   label: string;
   allLabel: string;
@@ -458,6 +472,7 @@ export function UserPermissions() {
   const [isBooksListView, setIsBooksListView] = useState(false);
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+  const [isQuickCreateUserModalOpen, setIsQuickCreateUserModalOpen] = useState(false);
   const [bulkCreateRunInput, setBulkCreateRunInput] = useState('');
   const [bulkCreateUsers, setBulkCreateUsers] = useState<BulkCreateDraftUser[]>([]);
   const [editingBulkCreateUserId, setEditingBulkCreateUserId] = useState<string | null>(null);
@@ -466,12 +481,21 @@ export function UserPermissions() {
   const [bulkCreateBooksOpen, setBulkCreateBooksOpen] = useState(false);
   const [bulkCreateBooksSearch, setBulkCreateBooksSearch] = useState('');
   const [showBulkCreatePreviewModal, setShowBulkCreatePreviewModal] = useState(false);
+  const [bulkCreateResultModal, setBulkCreateResultModal] = useState<BulkCreateResultModalData | null>(null);
   const bulkCreateBooksRef = useRef<HTMLDivElement | null>(null);
   const [editForm, setEditForm] = useState({
     group: '',
     role: '',
     profileId: '',
     profileName: ''
+  });
+  const [quickCreateForm, setQuickCreateForm] = useState({
+    run: '',
+    name: '',
+    email: '',
+    group: '',
+    role: '',
+    profileId: ''
   });
   const [addBooksModal, setAddBooksModal] = useState<{ userId: string; userName: string } | null>(null);
   const [selectedBooksToAdd, setSelectedBooksToAdd] = useState<string[]>([]);
@@ -618,6 +642,85 @@ export function UserPermissions() {
     setBulkCreateBooksOpen(false);
     setBulkCreateBooksSearch('');
     setShowBulkCreatePreviewModal(false);
+  };
+
+  const openQuickCreateUserModal = () => {
+    setQuickCreateForm({
+      run: '',
+      name: '',
+      email: '',
+      group: '',
+      role: '',
+      profileId: ''
+    });
+    setIsQuickCreateUserModalOpen(true);
+  };
+
+  const closeQuickCreateUserModal = () => {
+    setIsQuickCreateUserModalOpen(false);
+    setQuickCreateForm({
+      run: '',
+      name: '',
+      email: '',
+      group: '',
+      role: '',
+      profileId: ''
+    });
+  };
+
+  const createSingleUser = () => {
+    const normalizedRun = quickCreateForm.run.trim().toLowerCase();
+    if (!normalizedRun) {
+      window.alert('Ingresa un RUT para crear el usuario.');
+      return;
+    }
+    if (users.some(user => user.run.trim().toLowerCase() === normalizedRun)) {
+      window.alert('El RUT ingresado ya existe en el sistema.');
+      return;
+    }
+    if (!quickCreateForm.name.trim() || !quickCreateForm.email.trim() || !quickCreateForm.group || !quickCreateForm.role.trim()) {
+      window.alert('Completa nombre, email, grupo y cargo para continuar.');
+      return;
+    }
+
+    const selectedProfile = profilesCatalog.find(profile => profile.id === quickCreateForm.profileId);
+    const bookNameById = new Map(booksCatalog.map(book => [book.id, book.name]));
+    const avatarColorPalette = ['#4f46e5', '#2563eb', '#0ea5e9', '#0891b2', '#0f766e', '#059669', '#ca8a04', '#b45309'];
+
+    const nextId = String(users.reduce((max, user) => {
+      const parsed = Number.parseInt(user.id, 10);
+      return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
+    }, 0) + 1);
+
+    const profileBooks = (selectedProfile?.bookPermissions || []).map(book => ({
+      bookId: book.bookId,
+      bookName: bookNameById.get(book.bookId) || `Libro ${book.bookId}`,
+      permissions: sanitizePermissionsForBook(
+        book.bookId,
+        bookNameById.get(book.bookId) || `Libro ${book.bookId}`,
+        { ...book.permissions }
+      ),
+      isCustom: false
+    }));
+
+    const newUser: UserProfile = {
+      id: nextId,
+      name: quickCreateForm.name.trim(),
+      run: quickCreateForm.run.trim(),
+      email: quickCreateForm.email.trim(),
+      avatar: quickCreateForm.name.trim().charAt(0).toUpperCase() || 'U',
+      avatarColor: avatarColorPalette[users.length % avatarColorPalette.length],
+      profileId: quickCreateForm.profileId,
+      profileName: selectedProfile?.name || '',
+      group: quickCreateForm.group,
+      role: quickCreateForm.role.trim(),
+      hasCustomPermissions: false,
+      disabled: false,
+      bookPermissions: profileBooks
+    };
+
+    setUsers(prev => [...prev, newUser]);
+    closeQuickCreateUserModal();
   };
 
   useEffect(() => {
@@ -775,7 +878,8 @@ export function UserPermissions() {
       return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
     }, 0);
     const avatarColorPalette = ['#4f46e5', '#2563eb', '#0ea5e9', '#0891b2', '#0f766e', '#059669', '#ca8a04', '#b45309'];
-    let omittedConflicts = 0;
+    const appliedAssignments: BulkCreateAssignmentDetail[] = [];
+    const omittedAssignments: BulkCreateAssignmentDetail[] = [];
 
     const createdUsers: UserProfile[] = newUsersDraft.map((draftUser, index) => {
       const selectedProfile = profilesCatalog.find(profile => profile.id === draftUser.profileId);
@@ -813,10 +917,22 @@ export function UserPermissions() {
 
           if (profilePermissions) {
             if (!areSamePermissions(profilePermissions, requestedPermissions)) {
-              omittedConflicts += 1;
+              omittedAssignments.push({
+                userName: draftUser.name.trim(),
+                bookName,
+                permissions: requestedPermissions,
+                note: 'Conflicto con permisos heredados del perfil'
+              });
             }
             return null;
           }
+
+          appliedAssignments.push({
+            userName: draftUser.name.trim(),
+            bookName,
+            permissions: requestedPermissions,
+            note: 'Asignado'
+          });
 
           return {
             bookId,
@@ -879,12 +995,23 @@ export function UserPermissions() {
         const profilePermissions = profilePermissionsByBookId.get(bookId);
         if (profilePermissions) {
           if (!areSamePermissions(profilePermissions, requestedPermissions)) {
-            omittedConflicts += 1;
+            omittedAssignments.push({
+              userName: user.name,
+              bookName,
+              permissions: requestedPermissions,
+              note: 'Conflicto con permisos heredados del perfil'
+            });
           }
           return;
         }
 
         const existingBook = currentBooksById.get(bookId);
+        appliedAssignments.push({
+          userName: user.name,
+          bookName,
+          permissions: requestedPermissions,
+          note: existingBook ? 'Permisos actualizados' : 'Libro asignado'
+        });
         if (existingBook) {
           mergedBooks.splice(
             mergedBooks.findIndex(book => book.bookId === bookId),
@@ -909,10 +1036,12 @@ export function UserPermissions() {
       };
     }).concat(createdUsers));
     closeCreateUserModal();
-    const conflictSuffix = omittedConflicts > 0
-      ? ` Se omitieron ${omittedConflicts} asignación(es) en conflicto con permisos de perfil.`
-      : '';
-    window.alert(`Guardado con éxito. Nuevos: ${createdUsers.length}, existentes actualizados: ${existingUsersDraft.length}.${conflictSuffix}`);
+    setBulkCreateResultModal({
+      createdUsers: createdUsers.length,
+      updatedUsers: existingUsersDraft.length,
+      appliedAssignments,
+      omittedAssignments
+    });
   };
 
   const filteredBulkCreateBooks = booksCatalog.filter(book =>
@@ -1586,6 +1715,17 @@ export function UserPermissions() {
 
   const roleOptions = Array.from(new Set(users.map(user => user.role))).sort((a, b) => a.localeCompare(b));
   const profileOptions = profilesCatalog.map(profile => ({ value: profile.id, label: profile.name }));
+  const normalizedQuickCreateRun = quickCreateForm.run.trim().toLowerCase();
+  const quickCreateRunExists = normalizedQuickCreateRun.length > 0 &&
+    users.some(user => user.run.trim().toLowerCase() === normalizedQuickCreateRun);
+  const canSaveQuickCreateUser = !!(
+    quickCreateForm.run.trim() &&
+    quickCreateForm.name.trim() &&
+    quickCreateForm.email.trim() &&
+    quickCreateForm.group &&
+    quickCreateForm.role.trim() &&
+    !quickCreateRunExists
+  );
   const bookOptions = Array.from(catalogById.entries())
     .map(([value, label]) => ({ value, label }))
     .sort((a, b) => a.label.localeCompare(b.label));
@@ -1595,6 +1735,8 @@ export function UserPermissions() {
     { value: 'write', label: 'Escritura' },
     { value: 'acknowledge', label: 'Toma Conoc.' }
   ];
+  const formatPermissionSummary = (permissions: PermissionSet) =>
+    `L:${permissions.read ? 'Sí' : 'No'} | A:${permissions.draft ? 'Sí' : 'No'} | E:${permissions.write ? 'Sí' : 'No'} | TC:${permissions.acknowledge ? 'Sí' : 'No'}`;
 
   const serializeUser = (user: UserProfile) => JSON.stringify({
     name: user.name,
@@ -1806,18 +1948,26 @@ export function UserPermissions() {
             <div className="flex items-center justify-center gap-3">
               <button
                 onClick={() => setIsBooksListView(prev => !prev)}
-                className="px-4 py-2.5 rounded-lg bg-[#4f46e5] text-white hover:bg-[#4338ca] transition-colors shadow-sm"
+                className="px-4 py-2.5 rounded-lg bg-white text-[#4f46e5] border border-[#c7d2fe] hover:bg-[#eef2ff] transition-colors shadow-sm"
                 style={{ fontWeight: 600 }}
               >
                 {isBooksListView ? 'Ver listado de usuarios' : 'Ver listado de libros'}
               </button>
               <button
                 onClick={openCreateUserModal}
-                className="px-4 py-2.5 rounded-lg bg-[#4f46e5] text-white hover:bg-[#4338ca] transition-colors shadow-sm flex items-center gap-2"
+                className="px-4 py-2.5 rounded-lg bg-white text-[#4f46e5] border border-[#c7d2fe] hover:bg-[#eef2ff] transition-colors shadow-sm flex items-center gap-2"
                 style={{ fontWeight: 600 }}
               >
                 <UserPlus className="w-4 h-4" />
                 Asignar Usuario
+              </button>
+              <button
+                onClick={openQuickCreateUserModal}
+                className="px-4 py-2.5 rounded-lg bg-white text-[#4f46e5] border border-[#c7d2fe] hover:bg-[#eef2ff] transition-colors shadow-sm flex items-center gap-2"
+                style={{ fontWeight: 600 }}
+              >
+                <UserPlus className="w-4 h-4" />
+                Crear Usuario
               </button>
             </div>
           </div>
@@ -2676,6 +2826,124 @@ export function UserPermissions() {
         )}
       </div>
 
+      {/* Quick Create User Modal */}
+      <AnimatePresence>
+        {isQuickCreateUserModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50"
+            onClick={closeQuickCreateUserModal}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-8"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-4xl" style={{ fontWeight: 600, color: '#1f2937' }}>
+                  Crear especialista: {quickCreateForm.run.trim() || '---'}
+                </h3>
+                <button
+                  onClick={closeQuickCreateUserModal}
+                  className="text-[#6b7280] hover:text-[#374151] transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div>
+                  <input
+                    type="text"
+                    value={quickCreateForm.run}
+                    onChange={(e) => setQuickCreateForm(prev => ({ ...prev, run: e.target.value }))}
+                    placeholder="RUT"
+                    className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                  />
+                  {quickCreateRunExists && (
+                    <p className="text-sm text-[#ef4444] mt-2">El RUT ingresado ya existe en el sistema.</p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <input
+                    type="text"
+                    value={quickCreateForm.name}
+                    onChange={(e) => setQuickCreateForm(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="Nombre completo"
+                    className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                  />
+                  <input
+                    type="email"
+                    value={quickCreateForm.email}
+                    onChange={(e) => setQuickCreateForm(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="Email"
+                    className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <select
+                    value={quickCreateForm.group}
+                    onChange={(e) => setQuickCreateForm(prev => ({ ...prev, group: e.target.value }))}
+                    className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                    style={{ fontWeight: 500 }}
+                  >
+                    <option value="">Seleccionar grupo...</option>
+                    <option value="Mandante">Mandante</option>
+                    <option value="Contratista">Contratista</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={quickCreateForm.role}
+                    onChange={(e) => setQuickCreateForm(prev => ({ ...prev, role: e.target.value }))}
+                    placeholder="Cargo / Rol"
+                    className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                  />
+                </div>
+
+                <select
+                  value={quickCreateForm.profileId}
+                  onChange={(e) => setQuickCreateForm(prev => ({ ...prev, profileId: e.target.value }))}
+                  className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                  style={{ fontWeight: 500 }}
+                >
+                  <option value="">Sin Perfil</option>
+                  {profilesCatalog.map(profile => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-4">
+                <button
+                  onClick={closeQuickCreateUserModal}
+                  className="px-10 py-3 rounded-2xl border border-[#d1d5db] text-[#374151] hover:bg-[#f3f4f6] transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={createSingleUser}
+                  disabled={!canSaveQuickCreateUser}
+                  className="px-10 py-3 rounded-2xl bg-[#4f46e5] text-white hover:bg-[#4338ca] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ fontWeight: 600 }}
+                >
+                  Guardar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Create User Modal */}
       <AnimatePresence>
         {isCreateUserModalOpen && (
@@ -3172,6 +3440,91 @@ export function UserPermissions() {
                   </motion.div>
                 )}
               </AnimatePresence>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Bulk Create Result Modal */}
+      <AnimatePresence>
+        {bulkCreateResultModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50"
+            onClick={() => setBulkCreateResultModal(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.97, y: 8 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.97, y: 8 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[86vh] overflow-hidden"
+            >
+              <div className="px-6 py-5 border-b border-[#e5e7eb] flex items-center justify-between">
+                <div>
+                  <h3 className="text-3xl" style={{ fontWeight: 600, color: '#1f2937' }}>
+                    Resultado de Asignación
+                  </h3>
+                  <p className="text-sm text-[#6b7280] mt-1">
+                    Nuevos: {bulkCreateResultModal.createdUsers} | Existentes actualizados: {bulkCreateResultModal.updatedUsers}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setBulkCreateResultModal(null)}
+                  className="px-4 py-2 rounded-lg border border-[#d1d5db] text-[#374151] hover:bg-[#f3f4f6] transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto max-h-[calc(86vh-92px)]">
+                <div className="rounded-xl border border-[#d1fae5] bg-[#f0fdf4]">
+                  <div className="px-4 py-3 border-b border-[#bbf7d0]">
+                    <div style={{ fontWeight: 600, color: '#166534' }}>
+                      Permisos aplicados ({bulkCreateResultModal.appliedAssignments.length})
+                    </div>
+                  </div>
+                  <div className="max-h-[46vh] overflow-y-auto divide-y divide-[#dcfce7]">
+                    {bulkCreateResultModal.appliedAssignments.length === 0 ? (
+                      <div className="px-4 py-4 text-sm text-[#166534]">No hubo cambios aplicados.</div>
+                    ) : (
+                      bulkCreateResultModal.appliedAssignments.map((item, idx) => (
+                        <div key={`applied-${idx}`} className="px-4 py-3 text-sm">
+                          <div style={{ fontWeight: 600, color: '#14532d' }}>{item.userName}</div>
+                          <div className="text-[#166534]">{item.bookName}</div>
+                          <div className="text-[#15803d]">{formatPermissionSummary(item.permissions)}</div>
+                          {item.note && <div className="text-xs text-[#16a34a] mt-1">{item.note}</div>}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-[#fee2e2] bg-[#fef2f2]">
+                  <div className="px-4 py-3 border-b border-[#fecaca]">
+                    <div style={{ fontWeight: 600, color: '#991b1b' }}>
+                      Permisos no aplicados ({bulkCreateResultModal.omittedAssignments.length})
+                    </div>
+                  </div>
+                  <div className="max-h-[46vh] overflow-y-auto divide-y divide-[#fee2e2]">
+                    {bulkCreateResultModal.omittedAssignments.length === 0 ? (
+                      <div className="px-4 py-4 text-sm text-[#991b1b]">No hubo omisiones.</div>
+                    ) : (
+                      bulkCreateResultModal.omittedAssignments.map((item, idx) => (
+                        <div key={`omitted-${idx}`} className="px-4 py-3 text-sm">
+                          <div style={{ fontWeight: 600, color: '#7f1d1d' }}>{item.userName}</div>
+                          <div className="text-[#991b1b]">{item.bookName}</div>
+                          <div className="text-[#b91c1c]">{formatPermissionSummary(item.permissions)}</div>
+                          {item.note && <div className="text-xs text-[#dc2626] mt-1">{item.note}</div>}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
             </motion.div>
           </motion.div>
         )}
