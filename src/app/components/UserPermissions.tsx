@@ -156,7 +156,7 @@ function MultiSelectFilter({ label, allLabel, options, selectedValues, onChange 
             className="w-full text-left px-3 py-2 text-xs text-[#1d4ed8] hover:bg-[#eff6ff] border-b border-[#e5e7eb]"
             style={{ fontWeight: 600 }}
           >
-            {allSelected ? 'Limpiar selecciÃ³n' : 'Seleccionar todo'}
+            {allSelected ? 'Limpiar selección' : 'Seleccionar todo'}
           </button>
           <div className="max-h-56 overflow-auto py-1">
             {options.map(option => {
@@ -186,7 +186,7 @@ function MultiSelectFilter({ label, allLabel, options, selectedValues, onChange 
 const mockUsers: UserProfile[] = [
   {
     id: '1',
-    name: 'MarÃ­a GarcÃ­a LÃ³pez',
+    name: 'María García López',
     run: '12345678A',
     email: 'maria.garcia@empresa.com',
     avatar: 'M',
@@ -216,7 +216,7 @@ const mockUsers: UserProfile[] = [
   },
   {
     id: '2',
-    name: 'Juan MartÃ­nez Ruiz',
+    name: 'Juan Martínez Ruiz',
     run: '87654321B',
     email: 'juan.martinez@empresa.com',
     avatar: 'J',
@@ -224,7 +224,7 @@ const mockUsers: UserProfile[] = [
     profileId: '4',
     profileName: 'Consultor',
     group: 'Mandante',
-    role: 'Inspector TÃ©cnico',
+    role: 'Inspector Técnico',
     hasCustomPermissions: false,
     bookPermissions: [
       {
@@ -246,7 +246,7 @@ const mockUsers: UserProfile[] = [
   },
   {
     id: '3',
-    name: 'Laura PÃ©rez Moreno',
+    name: 'Laura Pérez Moreno',
     run: '78945612E',
     email: 'laura.perez@empresa.com',
     avatar: 'L',
@@ -277,7 +277,7 @@ const mockUsers: UserProfile[] = [
   },
   {
     id: '4',
-    name: 'Carlos SÃ¡nchez Gil',
+    name: 'Carlos Sánchez Gil',
     run: '45678912C',
     email: 'carlos.sanchez@empresa.com',
     avatar: 'C',
@@ -349,7 +349,7 @@ const DEFAULT_BOOKS = [
   { id: '2', name: 'Libro de Comunicaciones' },
   { id: '3', name: 'Libro de Especialidades' },
   { id: '4', name: 'Libro de Inspecciones' },
-  { id: '5', name: 'Libro de Ã“rdenes de Cambio' }
+  { id: '5', name: 'Libro de Órdenes de Cambio' }
 ];
 
 const DEFAULT_PROFILES: ProfileTemplate[] = [
@@ -1292,12 +1292,12 @@ export function UserPermissions() {
 
     const changesCount = calculateCopyPermissionChanges();
     if (changesCount === 0) {
-      window.alert('No hay permisos para modificar con la selecciÃ³n actual.');
+      window.alert('No hay permisos para modificar con la selección actual.');
       return;
     }
 
     const shouldContinue = window.confirm(
-      `Se modificarÃ¡n ${changesCount} permiso(s). Â¿Desea continuar?`
+      `Se modificarán ${changesCount} permiso(s). ¿Desea continuar?`
     );
 
     if (!shouldContinue) return;
@@ -1359,7 +1359,6 @@ export function UserPermissions() {
     const book = user?.bookPermissions.find(b => b.bookId === bookId);
 
     if (!user || !book) return;
-    if (isPlatformAdminProfile(user)) return;
 
     if (book.disabled) {
       // Enable book
@@ -1390,9 +1389,6 @@ export function UserPermissions() {
     return booksCatalog.filter(book => !assignedBookIds.includes(book.id));
   };
 
-  const isPlatformAdminProfile = (user: UserProfile) =>
-    user.profileId === '1' || user.profileName === 'Administrador de Plataforma';
-
   const isProfileBookForUser = (user: UserProfile, bookId: string) => {
     if (!user.profileId) return false;
     const profile = profilesCatalog.find(p => p.id === user.profileId);
@@ -1401,12 +1397,10 @@ export function UserPermissions() {
   };
 
   const canEditBookPermissions = (user: UserProfile, book: BookPermission) =>
-    !isPlatformAdminProfile(user) &&
     !book.disabled &&
     !isProfileBookForUser(user, book.bookId);
 
   const canRemoveBookFromUser = (user: UserProfile, bookId: string) =>
-    !isPlatformAdminProfile(user) &&
     !isProfileBookForUser(user, bookId);
 
   const toggleBookPermission = (
@@ -1415,7 +1409,6 @@ export function UserPermissions() {
     permissionType: keyof BookPermission['permissions']
   ) => {
     const targetUser = users.find(user => user.id === userId);
-    if (targetUser && isPlatformAdminProfile(targetUser)) return;
     const targetBook = targetUser?.bookPermissions.find(book => book.bookId === bookId);
     if (!targetUser || !targetBook || !canEditBookPermissions(targetUser, targetBook)) return;
 
@@ -1450,7 +1443,6 @@ export function UserPermissions() {
   const toggleAllPermissions = (userId: string, permissionType: keyof BookPermission['permissions']) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
-    if (isPlatformAdminProfile(user)) return;
     const editableBooks = user.bookPermissions.filter(book => canEditBookPermissions(user, book));
     if (editableBooks.length === 0) return;
 
@@ -1494,7 +1486,6 @@ export function UserPermissions() {
   const hasEditablePermissionsForUser = (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return false;
-    if (isPlatformAdminProfile(user)) return false;
     return user.bookPermissions.some(book => canEditBookPermissions(user, book));
   };
 
@@ -2095,7 +2086,6 @@ export function UserPermissions() {
                                           onClick={() => toggleBookPermission(user.id, permission.bookId, permissionType)}
                                           disabled={
                                             permission.disabled ||
-                                            isPlatformAdminProfile(user) ||
                                             isProfileBookForUser(user, permission.bookId) ||
                                             (permissionType === 'write' && isLibroObraMaestro(permission.bookId, permission.bookName))
                                           }
@@ -2111,9 +2101,7 @@ export function UserPermissions() {
                                           title={
                                             permissionType === 'write' && isLibroObraMaestro(permission.bookId, permission.bookName)
                                               ? 'Escritura no disponible para Libro de Obra Maestro'
-                                              : isPlatformAdminProfile(user)
-                                                ? 'Permisos bloqueados para Administrador de Plataforma'
-                                                : isProfileBookForUser(user, permission.bookId)
+                                              : isProfileBookForUser(user, permission.bookId)
                                                   ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                                 : permission.disabled
                                                   ? 'Libro deshabilitado'
@@ -2133,13 +2121,12 @@ export function UserPermissions() {
                                       <div className="flex items-center gap-2">
                                         <button
                                           onClick={() => toggleBookEnabled(user.id, permission.bookId)}
-                                          disabled={isPlatformAdminProfile(user)}
                                           className={`p-2 rounded-lg transition-colors ${
                                             permission.disabled
                                               ? 'text-[#10b981] hover:bg-[#d1fae5]'
                                               : 'text-[#f59e0b] hover:bg-[#fef3c7]'
                                           } disabled:opacity-50 disabled:cursor-not-allowed`}
-                                          title={isPlatformAdminProfile(user) ? 'AcciÃ³n bloqueada para Administrador de Plataforma' : permission.disabled ? 'Habilitar acceso a libro' : 'Deshabilitar acceso a libro'}
+                                          title={permission.disabled ? 'Habilitar acceso a libro' : 'Deshabilitar acceso a libro'}
                                         >
                                           {permission.disabled ? (
                                             <UserCheck className="w-5 h-5" />
@@ -2152,9 +2139,7 @@ export function UserPermissions() {
                                           disabled={!canRemoveBookFromUser(user, permission.bookId)}
                                           className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                           title={
-                                            isPlatformAdminProfile(user)
-                                              ? 'AcciÃ³n bloqueada para Administrador de Plataforma'
-                                              : isProfileBookForUser(user, permission.bookId)
+                                            isProfileBookForUser(user, permission.bookId)
                                                 ? 'Libro heredado del perfil base (no se puede quitar)'
                                                 : 'Quitar usuario del libro'
                                           }
@@ -2495,9 +2480,7 @@ export function UserPermissions() {
                                   }
                                 `}
                                   title={
-                                    isPlatformAdminProfile(user)
-                                      ? 'Permisos bloqueados para Administrador de Plataforma'
-                                      : isProfileBookForUser(user, book.bookId)
+                                    isProfileBookForUser(user, book.bookId)
                                         ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                         : book.disabled
                                           ? 'Libro deshabilitado'
@@ -2527,9 +2510,7 @@ export function UserPermissions() {
                                   }
                                 `}
                                   title={
-                                    isPlatformAdminProfile(user)
-                                      ? 'Permisos bloqueados para Administrador de Plataforma'
-                                      : isProfileBookForUser(user, book.bookId)
+                                    isProfileBookForUser(user, book.bookId)
                                         ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                         : book.disabled
                                           ? 'Libro deshabilitado'
@@ -2561,9 +2542,7 @@ export function UserPermissions() {
                                   title={
                                     isLibroObraMaestro(book.bookId, book.bookName)
                                       ? 'Escritura no disponible para Libro de Obra Maestro'
-                                      : isPlatformAdminProfile(user)
-                                        ? 'Permisos bloqueados para Administrador de Plataforma'
-                                        : isProfileBookForUser(user, book.bookId)
+                                      : isProfileBookForUser(user, book.bookId)
                                           ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                         : book.disabled
                                           ? 'Libro deshabilitado'
@@ -2593,9 +2572,7 @@ export function UserPermissions() {
                                       }
                                     `}
                                       title={
-                                        isPlatformAdminProfile(user)
-                                          ? 'Permisos bloqueados para Administrador de Plataforma'
-                                          : isProfileBookForUser(user, book.bookId)
+                                        isProfileBookForUser(user, book.bookId)
                                             ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                             : book.disabled
                                               ? 'Libro deshabilitado'
@@ -2615,13 +2592,12 @@ export function UserPermissions() {
                                       <div className="flex items-center gap-2">
                                         <button
                                           onClick={() => toggleBookEnabled(user.id, book.bookId)}
-                                          disabled={isPlatformAdminProfile(user)}
                                           className={`p-2 rounded-lg transition-colors ${
                                             book.disabled
                                               ? 'text-[#10b981] hover:bg-[#d1fae5]'
                                               : 'text-[#f59e0b] hover:bg-[#fef3c7]'
                                           } disabled:opacity-50 disabled:cursor-not-allowed`}
-                                          title={isPlatformAdminProfile(user) ? 'AcciÃ³n bloqueada para Administrador de Plataforma' : book.disabled ? 'Habilitar acceso a libro' : 'Deshabilitar acceso a libro'}
+                                          title={book.disabled ? 'Habilitar acceso a libro' : 'Deshabilitar acceso a libro'}
                                         >
                                           {book.disabled ? (
                                             <UserCheck className="w-5 h-5" />
@@ -2634,9 +2610,7 @@ export function UserPermissions() {
                                           disabled={!canRemoveBookFromUser(user, book.bookId)}
                                           className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                           title={
-                                            isPlatformAdminProfile(user)
-                                              ? 'AcciÃ³n bloqueada para Administrador de Plataforma'
-                                              : isProfileBookForUser(user, book.bookId)
+                                            isProfileBookForUser(user, book.bookId)
                                                 ? 'Libro heredado del perfil base (no se puede quitar)'
                                                 : 'Quitar libro'
                                           }
@@ -2651,13 +2625,12 @@ export function UserPermissions() {
                                       <div className="flex justify-center">
                                         <button
                                           onClick={() => toggleBookEnabled(user.id, book.bookId)}
-                                          disabled={isPlatformAdminProfile(user)}
                                           className={`p-2 rounded-lg transition-colors ${
                                             book.disabled
                                               ? 'text-[#10b981] hover:bg-[#d1fae5]'
                                               : 'text-[#f59e0b] hover:bg-[#fef3c7]'
                                           } disabled:opacity-50 disabled:cursor-not-allowed`}
-                                          title={isPlatformAdminProfile(user) ? 'AcciÃ³n bloqueada para Administrador de Plataforma' : book.disabled ? 'Habilitar acceso a libro' : 'Deshabilitar acceso a libro'}
+                                          title={book.disabled ? 'Habilitar acceso a libro' : 'Deshabilitar acceso a libro'}
                                         >
                                           {book.disabled ? (
                                             <UserCheck className="w-5 h-5" />
@@ -2674,9 +2647,7 @@ export function UserPermissions() {
                                           disabled={!canRemoveBookFromUser(user, book.bookId)}
                                           className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                           title={
-                                            isPlatformAdminProfile(user)
-                                              ? 'AcciÃ³n bloqueada para Administrador de Plataforma'
-                                              : isProfileBookForUser(user, book.bookId)
+                                            isProfileBookForUser(user, book.bookId)
                                                 ? 'Libro heredado del perfil base (no se puede quitar)'
                                                 : 'Quitar libro'
                                           }
@@ -3286,7 +3257,7 @@ export function UserPermissions() {
                     type="text"
                     value={editForm.role}
                     onChange={(e) => setEditForm(prev => ({ ...prev, role: e.target.value }))}
-                    placeholder="ej. Inspector TÃ©cnico, Jefe de Proyecto..."
+                    placeholder="ej. Inspector Técnico, Jefe de Proyecto..."
                     className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
                   />
                 </div>
@@ -3303,7 +3274,7 @@ export function UserPermissions() {
                       if (nextProfileId === editForm.profileId) return;
 
                       const shouldApply = window.confirm(
-                        'Al cambiar el perfil se restablecerÃ¡n los permisos del usuario segÃºn el nuevo perfil. Â¿Desea continuar?'
+                        'Al cambiar el perfil se restablecerán los permisos del usuario según el nuevo perfil. ¿Desea continuar?'
                       );
 
                       if (!shouldApply) return;
@@ -3450,7 +3421,7 @@ export function UserPermissions() {
                     </span>
                   </div>
                   <p className="text-sm text-[#6b7280] mt-1">
-                    Los libros se agregarÃ¡n sin permisos activos. Puedes configurarlos despuÃ©s.
+                    Los libros se agregarán sin permisos activos. Puedes configurarlos después.
                   </p>
                 </div>
               )}
@@ -3575,7 +3546,7 @@ export function UserPermissions() {
                     </span>
                   </div>
                   <p className="text-sm text-[#6b7280] mt-1">
-                    Los usuarios se agregarÃ¡n con permisos desactivados para este libro.
+                    Los usuarios se agregarán con permisos desactivados para este libro.
                   </p>
                 </div>
               )}
@@ -3657,7 +3628,7 @@ export function UserPermissions() {
                               {book.bookName}
                             </div>
                             <div className="text-xs text-[#6b7280] mt-1">
-                              Lectura: {book.permissions.read ? 'SÃ­' : 'No'} | Asistente: {book.permissions.draft ? 'SÃ­' : 'No'} | Escritura: {book.permissions.write ? 'SÃ­' : 'No'} | Toma Conoc.: {book.permissions.acknowledge ? 'SÃ­' : 'No'}
+                              Lectura: {book.permissions.read ? 'Sí' : 'No'} | Asistente: {book.permissions.draft ? 'Sí' : 'No'} | Escritura: {book.permissions.write ? 'Sí' : 'No'} | Toma Conoc.: {book.permissions.acknowledge ? 'Sí' : 'No'}
                             </div>
                           </div>
                           {selectedBooksToCopy.includes(book.bookId) && (
@@ -3784,7 +3755,7 @@ export function UserPermissions() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h3 className="text-3xl mb-1 flex items-center gap-2" style={{ fontWeight: 600 }}>
-                      <Eye className="w-6 h-6" /> PrevisualizaciÃ³n de Cambios
+                      <Eye className="w-6 h-6" /> Previsualización de Cambios
                     </h3>
                     <p className="text-blue-100">Revisa todos los cambios antes de aplicarlos</p>
                   </div>
@@ -3876,7 +3847,7 @@ export function UserPermissions() {
                   className="px-4 py-2.5 rounded-lg border border-[#d1d5db] text-[#374151] hover:bg-[#f8fafc] transition-colors"
                   style={{ fontWeight: 500 }}
                 >
-                  Cerrar previsualizaciÃ³n
+                  Cerrar previsualización
                 </button>
                 <button
                   onClick={handleSaveChanges}
@@ -3935,12 +3906,12 @@ export function UserPermissions() {
                     {confirmModal.type === 'enable-book' && 'Habilitar Acceso a Libro'}
                   </h3>
                   <p className="text-sm text-[#6b7280]">
-                    {confirmModal.type === 'delete-user' && `Â¿EstÃ¡s seguro de que deseas eliminar a ${confirmModal.userName}? Esta acciÃ³n no se puede deshacer.`}
-                    {confirmModal.type === 'disable-user' && `Â¿EstÃ¡s seguro de que deseas deshabilitar a ${confirmModal.userName}? El usuario no podrÃ¡ acceder al sistema.`}
-                    {confirmModal.type === 'enable-user' && `Â¿EstÃ¡s seguro de que deseas habilitar a ${confirmModal.userName}? El usuario podrÃ¡ acceder al sistema nuevamente.`}
-                    {confirmModal.type === 'remove-book' && `Â¿EstÃ¡s seguro de que deseas quitar el libro "${confirmModal.bookName}" de ${confirmModal.userName}?`}
-                    {confirmModal.type === 'disable-book' && `Â¿EstÃ¡s seguro de que deseas deshabilitar el acceso de ${confirmModal.userName} al libro "${confirmModal.bookName}"?`}
-                    {confirmModal.type === 'enable-book' && `Â¿EstÃ¡s seguro de que deseas habilitar el acceso de ${confirmModal.userName} al libro "${confirmModal.bookName}"?`}
+                    {confirmModal.type === 'delete-user' && `¿Estás seguro de que deseas eliminar a ${confirmModal.userName}? Esta acción no se puede deshacer.`}
+                    {confirmModal.type === 'disable-user' && `¿Estás seguro de que deseas deshabilitar a ${confirmModal.userName}? El usuario no podrá acceder al sistema.`}
+                    {confirmModal.type === 'enable-user' && `¿Estás seguro de que deseas habilitar a ${confirmModal.userName}? El usuario podrá acceder al sistema nuevamente.`}
+                    {confirmModal.type === 'remove-book' && `¿Estás seguro de que deseas quitar el libro "${confirmModal.bookName}" de ${confirmModal.userName}?`}
+                    {confirmModal.type === 'disable-book' && `¿Estás seguro de que deseas deshabilitar el acceso de ${confirmModal.userName} al libro "${confirmModal.bookName}"?`}
+                    {confirmModal.type === 'enable-book' && `¿Estás seguro de que deseas habilitar el acceso de ${confirmModal.userName} al libro "${confirmModal.bookName}"?`}
                   </p>
                 </div>
               </div>
@@ -3978,4 +3949,3 @@ export function UserPermissions() {
     </div>
   );
 }
-

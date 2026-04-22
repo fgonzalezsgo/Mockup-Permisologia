@@ -64,7 +64,7 @@ const mockProfiles: Profile[] = [
   {
     id: '2',
     name: 'Administrador Mandante',
-    description: 'Acceso completo a todos los libros con permisos de gestiÃƒÂ³n',
+    description: 'Acceso completo a todos los libros con permisos de gestión',
     color: '#0891b2',
     usersCount: 5,
     bookPermissions: [
@@ -170,7 +170,7 @@ const DEFAULT_BOOKS: BookCatalogItem[] = [
   { id: '2', name: 'Libro de Comunicaciones' },
   { id: '3', name: 'Libro de Especialidades' },
   { id: '4', name: 'Libro de Inspecciones' },
-  { id: '5', name: 'Libro de Ã“rdenes de Cambio' }
+  { id: '5', name: 'Libro de Órdenes de Cambio' }
 ];
 
 const normalizeProfiles = (input: Profile[]): Profile[] =>
@@ -242,6 +242,9 @@ export function PermissionProfiles() {
     description: ''
   });
 
+  const normalizeRut = (value: string) =>
+    value.replace(/[^0-9kK]/g, '').toLowerCase();
+
   useEffect(() => {
     const syncUsers = () => {
       setUsersCatalog(loadStoredUsers());
@@ -252,18 +255,24 @@ export function PermissionProfiles() {
     return () => window.removeEventListener(USERS_UPDATED_EVENT, syncUsers);
   }, []);
 
-  const toggleVisualizerAssignment = (userId: string) => {
+  const addVisualizerAssignment = (userId: string) => {
     setVisualizerAssignments(prev =>
-      prev.includes(userId)
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
+      prev.includes(userId) ? prev : [...prev, userId]
     );
   };
 
-  const filteredUsersForVisualizer = usersCatalog.filter(user =>
-    user.name.toLowerCase().includes(visualizerSearch.toLowerCase()) ||
-    user.run.toLowerCase().includes(visualizerSearch.toLowerCase())
-  );
+  const removeVisualizerAssignment = (userId: string) => {
+    setVisualizerAssignments(prev => prev.filter(id => id !== userId));
+  };
+
+  const normalizedVisualizerRutQuery = normalizeRut(visualizerSearch);
+  const visualizerSearchResults = normalizedVisualizerRutQuery.length === 0
+    ? []
+    : usersCatalog.filter(user => normalizeRut(user.run).includes(normalizedVisualizerRutQuery));
+
+  const assignedVisualizerUsers = usersCatalog
+    .filter(user => visualizerAssignments.includes(user.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const toggleProfile = (profileId: string) => {
     setExpandedProfiles(prev =>
@@ -908,44 +917,103 @@ export function PermissionProfiles() {
               </motion.div>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#e1e4e8] p-6">
-              <div className="mb-4">
-                <input
-                  type="text"
-                  value={visualizerSearch}
-                  onChange={(e) => setVisualizerSearch(e.target.value)}
-                  placeholder="Buscar por nombre o RUN..."
-                  className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
-                />
+            <div className="space-y-6">
+              <div className="bg-white rounded-xl border border-[#e1e4e8] p-6">
+                <h3 className="text-lg mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
+                  Buscar usuario por RUT
+                </h3>
+                <p className="text-sm text-[#6b7280] mb-4">
+                  Ingresa el RUT del usuario y agrega con el botón "Agregar".
+                </p>
+
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    value={visualizerSearch}
+                    onChange={(e) => setVisualizerSearch(e.target.value)}
+                    placeholder="Ej: 12345678K"
+                    className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                  />
+                </div>
+
+                {normalizedVisualizerRutQuery.length === 0 ? (
+                  <div className="text-sm text-[#6b7280] bg-[#f8fafc] border border-[#e2e8f0] rounded-lg px-4 py-3">
+                    Escribe un RUT para buscar usuarios.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[320px] overflow-auto">
+                    {visualizerSearchResults.map(user => {
+                      const assigned = visualizerAssignments.includes(user.id);
+                      return (
+                        <div
+                          key={user.id}
+                          className={`w-full p-4 rounded-lg border ${
+                            assigned ? 'border-[#c7d2fe] bg-[#eef2ff]' : 'border-[#e1e4e8] bg-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#1f2937' }}>{user.name}</div>
+                              <div className="text-sm text-[#6b7280]">RUT: {user.run}</div>
+                              {user.profileName && (
+                                <div className="text-xs text-[#6b7280] mt-1">Perfil base: {user.profileName}</div>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => addVisualizerAssignment(user.id)}
+                              disabled={assigned}
+                              className="px-3 py-2 bg-[#4f46e5] text-white rounded-lg hover:bg-[#4338ca] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              style={{ fontWeight: 600 }}
+                            >
+                              {assigned ? 'Agregado' : 'Agregar'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {visualizerSearchResults.length === 0 && (
+                      <div className="text-center py-8 text-[#6b7280]">No se encontraron usuarios con ese RUT.</div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-2 max-h-[520px] overflow-auto">
-                {filteredUsersForVisualizer.map(user => {
-                  const assigned = visualizerAssignments.includes(user.id);
-                  return (
-                    <button
-                      key={user.id}
-                      onClick={() => toggleVisualizerAssignment(user.id)}
-                      className={`w-full p-4 rounded-lg border-2 transition-all text-left ${assigned ? 'border-[#4f46e5] bg-[#eef2ff]' : 'border-[#e1e4e8] bg-white hover:border-[#c7d2fe]'}`}
+              <div className="bg-white rounded-xl border border-[#e1e4e8] p-6">
+                <h3 className="text-lg mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
+                  Usuarios visualizadores
+                </h3>
+                <p className="text-sm text-[#6b7280] mb-4">
+                  Listado de usuarios que actualmente tienen visualizador asignado.
+                </p>
+
+                <div className="space-y-2 max-h-[360px] overflow-auto">
+                  {assignedVisualizerUsers.map(user => (
+                    <div
+                      key={`visualizer-${user.id}`}
+                      className="w-full p-4 rounded-lg border border-[#e1e4e8] bg-white"
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <div style={{ fontWeight: 600, color: '#1f2937' }}>{user.name}</div>
-                          <div className="text-sm text-[#6b7280]">RUN: {user.run}</div>
+                          <div className="text-sm text-[#6b7280]">RUT: {user.run}</div>
                           {user.profileName && (
                             <div className="text-xs text-[#6b7280] mt-1">Perfil base: {user.profileName}</div>
                           )}
                         </div>
-                        <div className={`w-6 h-6 rounded border flex items-center justify-center ${assigned ? 'bg-[#4f46e5] border-[#4f46e5]' : 'bg-white border-[#d1d5db]'}`}>
-                          {assigned && <Check className="w-4 h-4 text-white" strokeWidth={3} />}
-                        </div>
+                        <button
+                          onClick={() => removeVisualizerAssignment(user.id)}
+                          className="px-3 py-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors border border-[#fecaca]"
+                          style={{ fontWeight: 600 }}
+                        >
+                          Quitar
+                        </button>
                       </div>
-                    </button>
-                  );
-                })}
-                {filteredUsersForVisualizer.length === 0 && (
-                  <div className="text-center py-10 text-[#6b7280]">No se encontraron usuarios.</div>
-                )}
+                    </div>
+                  ))}
+                  {assignedVisualizerUsers.length === 0 && (
+                    <div className="text-center py-8 text-[#6b7280]">No hay usuarios visualizadores asignados.</div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1031,7 +1099,7 @@ export function PermissionProfiles() {
 
                 <div className="mb-4 p-4 bg-[#fff7ed] rounded-lg border border-[#fed7aa]">
                   <p className="text-sm mb-2" style={{ fontWeight: 600, color: '#9a3412' }}>
-                    CatÃ¡logo de libros (eliminar)
+                    Catálogo de libros (eliminar)
                   </p>
                   <div className="space-y-2 max-h-40 overflow-auto">
                     {booksCatalog.map(book => (
@@ -1040,7 +1108,7 @@ export function PermissionProfiles() {
                         <button
                           onClick={() => removeBookFromCatalog(book.id)}
                           className="p-1.5 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors"
-                          title="Eliminar libro del catÃ¡logo"
+                          title="Eliminar libro del catálogo"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1144,7 +1212,7 @@ export function PermissionProfiles() {
                     {editingProfile ? 'Editar Perfil' : 'Crear Nuevo Perfil'}
                   </h3>
                   <p className="text-sm text-[#6b7280]">
-                    {editingProfile ? 'Actualiza la informaciÃƒÂ³n del perfil' : 'Define un nuevo perfil de permisos para asignar a usuarios'}
+                    {editingProfile ? 'Actualiza la información del perfil' : 'Define un nuevo perfil de permisos para asignar a usuarios'}
                   </p>
                 </div>
               </div>
@@ -1168,7 +1236,7 @@ export function PermissionProfiles() {
                 {/* Description */}
                 <div>
                   <label className="block text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
-                    DescripciÃƒÂ³n
+                    Descripción
                   </label>
                   <textarea
                     value={formData.description}
@@ -1182,7 +1250,7 @@ export function PermissionProfiles() {
                 {!editingProfile && (
                   <div className="p-4 bg-[#eff6ff] rounded-lg border border-[#bfdbfe]">
                     <p className="text-sm text-[#1e40af]" style={{ fontWeight: 500 }}>
-                      DespuÃƒÂ©s de crear el perfil, podrÃƒÂ¡s configurar los permisos especÃƒÂ­ficos para cada libro.
+                      Después de crear el perfil, podrás configurar los permisos específicos para cada libro.
                     </p>
                   </div>
                 )}
@@ -1213,9 +1281,6 @@ export function PermissionProfiles() {
     </div>
   );
 }
-
-
-
 
 
 
