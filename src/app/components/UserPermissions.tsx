@@ -16,6 +16,24 @@ interface BookPermission {
   disabled?: boolean;
 }
 
+interface UserResourceAccess {
+  resourceId: string;
+  resourceName: string;
+  moduleName: string;
+}
+
+interface ResourceGroupView {
+  id: string;
+  name: string;
+  moduleName: string;
+}
+
+interface ResourceProfileTemplate {
+  id: string;
+  name: string;
+  permissionIds: string[];
+}
+
 type PermissionSet = BookPermission['permissions'];
 
 interface ProfileTemplate {
@@ -39,6 +57,8 @@ interface UserProfile {
   group: string;
   role: string;
   bookPermissions: BookPermission[];
+  resourceProfileIds?: string[];
+  resourcePermissions?: UserResourceAccess[];
   hasCustomPermissions: boolean;
   disabled?: boolean;
 }
@@ -356,6 +376,7 @@ const PROFILES_STORAGE_KEY = 'permission_profiles_v1';
 const BOOKS_STORAGE_KEY = 'permission_books_v1';
 const PERMISSIONS_CONFIG_UPDATED_EVENT = 'permissions-config-updated';
 const USERS_STORAGE_KEY = 'permission_users_v1';
+const RESOURCE_PROFILES_STORAGE_KEY = 'resource_profiles_v3';
 const USERS_UPDATED_EVENT = 'permission-users-updated';
 
 const DEFAULT_BOOKS = [
@@ -423,6 +444,140 @@ const DEFAULT_PROFILES: ProfileTemplate[] = [
   }
 ];
 
+const RESOURCE_CATALOG: UserResourceAccess[] = [
+  { resourceId: 'solicitudes_contratos', resourceName: 'Solicitudes de Contratos', moduleName: 'Contratos' },
+  { resourceId: 'procesos_batch', resourceName: 'Procesos Batch', moduleName: 'Contratos' },
+  { resourceId: 'firmas', resourceName: 'Firmas', moduleName: 'Contratos' },
+  { resourceId: 'acuerdos', resourceName: 'Acuerdos', moduleName: 'Cobranzas' },
+  { resourceId: 'maestros', resourceName: 'Maestros', moduleName: 'Cobranzas' },
+  { resourceId: 'cuentas_fecha_ultima_aprobacion', resourceName: 'Cuentas Fecha Última Aprobación', moduleName: 'Cobranzas' },
+  { resourceId: 'script_pagos', resourceName: 'Script Pagos', moduleName: 'Cobranzas' },
+  { resourceId: 'transacciones_r', resourceName: 'Transacciones (R)', moduleName: 'Cobranzas' },
+  { resourceId: 'rechazos_cr', resourceName: 'Rechazos (CR)', moduleName: 'Cobranzas' },
+  { resourceId: 'usos', resourceName: 'Usos', moduleName: 'Cobranzas' },
+  { resourceId: 'editor_categorias', resourceName: 'Editor Categorías', moduleName: 'Centro de Ayuda' },
+  { resourceId: 'editor_preguntas_frecuentes', resourceName: 'Editor Preguntas Frecuentes', moduleName: 'Centro de Ayuda' },
+  { resourceId: 'log_aplicacion', resourceName: 'Log de aplicación', moduleName: 'SuperAdministrador' },
+  { resourceId: 'mensajes', resourceName: 'Mensajes', moduleName: 'SuperAdministrador' },
+  { resourceId: 'reinicio_cache', resourceName: 'Reinicio de Caché', moduleName: 'SuperAdministrador' },
+  { resourceId: 'imagen_login', resourceName: 'Imagen de Login', moduleName: 'SuperAdministrador' },
+  { resourceId: 'repetir_firma_toma_conocimiento', resourceName: 'Repetir Firma o Toma de Conocimiento', moduleName: 'SuperAdministrador' },
+  { resourceId: 'intentos_fallidos', resourceName: 'Intentos Fallidos', moduleName: 'SuperAdministrador' }
+];
+
+const RESOURCE_GROUPS: ResourceGroupView[] = [
+  { id: 'contratos', name: 'Contratos', moduleName: 'Contratos' },
+  { id: 'cobranzas', name: 'Cobranzas', moduleName: 'Cobranzas' },
+  { id: 'centro_ayuda', name: 'Centro de Ayuda', moduleName: 'Centro de Ayuda' },
+  { id: 'superadministrador', name: 'SuperAdministrador', moduleName: 'SuperAdministrador' }
+];
+
+const RESOURCE_PROFILE_BY_PERMISSION_PROFILE: Record<string, string[]> = {
+  '1': RESOURCE_CATALOG.map(resource => resource.resourceId),
+  '2': RESOURCE_CATALOG.map(resource => resource.resourceId),
+  '3': RESOURCE_CATALOG.map(resource => resource.resourceId),
+  '4': [
+    'solicitudes_contratos',
+    'firmas',
+    'acuerdos',
+    'maestros',
+    'transacciones_r',
+    'rechazos_cr',
+    'usos',
+    'editor_preguntas_frecuentes'
+  ],
+  '5': [
+    'solicitudes_contratos',
+    'firmas',
+    'acuerdos',
+    'maestros',
+    'transacciones_r',
+    'rechazos_cr',
+    'usos'
+  ],
+  '6': [
+    'solicitudes_contratos',
+    'firmas',
+    'editor_preguntas_frecuentes'
+  ]
+};
+
+const DEFAULT_RESOURCE_PROFILES: ResourceProfileTemplate[] = [
+  { id: 'rp-admin', name: 'Administrador', permissionIds: [] },
+  { id: 'rp-cobranza', name: 'Cobranza', permissionIds: [] },
+  { id: 'rp-controller', name: 'Controller', permissionIds: [] }
+];
+
+type UserResourceContext = Pick<UserProfile, 'profileId' | 'profileName' | 'group' | 'role'>;
+
+const buildResourceList = (resourceIds: string[]): UserResourceAccess[] => {
+  const catalogById = new Map(RESOURCE_CATALOG.map(resource => [resource.resourceId, resource]));
+  return Array.from(new Set(resourceIds))
+    .map(resourceId => catalogById.get(resourceId))
+    .filter((resource): resource is UserResourceAccess => !!resource);
+};
+
+const resolveResourceIdsForProfile = (profile: ResourceProfileTemplate): string[] => {
+  if (profile.permissionIds.length > 0) return profile.permissionIds;
+
+  const normalizedName = profile.name.toLowerCase();
+  if (normalizedName.includes('admin')) {
+    return RESOURCE_CATALOG.map(resource => resource.resourceId);
+  }
+  if (normalizedName.includes('cobranza')) {
+    return RESOURCE_CATALOG
+      .filter(resource => resource.moduleName === 'Cobranzas')
+      .map(resource => resource.resourceId);
+  }
+  if (normalizedName.includes('controller')) {
+    return RESOURCE_CATALOG
+      .filter(resource => resource.moduleName === 'Cobranzas' || resource.moduleName === 'Contratos')
+      .map(resource => resource.resourceId);
+  }
+
+  return [];
+};
+
+const buildResourcesFromResourceProfiles = (
+  selectedProfileIds: string[],
+  resourceProfilesCatalog: ResourceProfileTemplate[]
+): UserResourceAccess[] => {
+  if (selectedProfileIds.length === 0) return [];
+
+  const profileById = new Map(resourceProfilesCatalog.map(profile => [profile.id, profile]));
+  const resourceIds = selectedProfileIds.flatMap(profileId => {
+    const profile = profileById.get(profileId);
+    return profile ? resolveResourceIdsForProfile(profile) : [];
+  });
+  return buildResourceList(resourceIds);
+};
+
+const getDefaultResourcesForUser = (user: UserResourceContext): UserResourceAccess[] => {
+  if (user.profileId && RESOURCE_PROFILE_BY_PERMISSION_PROFILE[user.profileId]) {
+    return buildResourceList(RESOURCE_PROFILE_BY_PERMISSION_PROFILE[user.profileId]);
+  }
+
+  const profileName = (user.profileName || '').toLowerCase();
+  if (profileName.includes('admin')) {
+    return [...RESOURCE_CATALOG];
+  }
+  if (profileName.includes('consultor')) {
+    return buildResourceList(RESOURCE_PROFILE_BY_PERMISSION_PROFILE['4']);
+  }
+  if (profileName.includes('visualizador')) {
+    return buildResourceList(RESOURCE_PROFILE_BY_PERMISSION_PROFILE['6']);
+  }
+  return [];
+};
+
+const ensureUserResources = (user: UserProfile): UserProfile => ({
+  ...user,
+  resourceProfileIds: user.resourceProfileIds || [],
+  resourcePermissions: (user.resourcePermissions && user.resourcePermissions.length > 0)
+    ? user.resourcePermissions
+    : getDefaultResourcesForUser(user)
+});
+
 const loadStoredProfiles = (): ProfileTemplate[] => {
   try {
     const raw = localStorage.getItem(PROFILES_STORAGE_KEY);
@@ -456,12 +611,33 @@ const loadStoredUsers = (): UserProfile[] => {
   }
 };
 
+const loadStoredResourceProfiles = (): ResourceProfileTemplate[] => {
+  try {
+    const raw = localStorage.getItem(RESOURCE_PROFILES_STORAGE_KEY);
+    if (!raw) return DEFAULT_RESOURCE_PROFILES;
+    const parsed = JSON.parse(raw) as { profiles?: Array<{ id: string; name: string; permissionIds?: string[] }> };
+    const profiles = parsed?.profiles;
+    if (!Array.isArray(profiles) || profiles.length === 0) return DEFAULT_RESOURCE_PROFILES;
+
+    return profiles.map(profile => ({
+      id: profile.id,
+      name: profile.name,
+      permissionIds: Array.isArray(profile.permissionIds) ? profile.permissionIds : []
+    }));
+  } catch {
+    return DEFAULT_RESOURCE_PROFILES;
+  }
+};
+
 export function UserPermissions() {
-  const [users, setUsers] = useState<UserProfile[]>(() => applyMaestroPermissionRuleToUsers(loadStoredUsers()));
-  const [savedUsersSnapshot, setSavedUsersSnapshot] = useState<UserProfile[]>(() => applyMaestroPermissionRuleToUsers(loadStoredUsers()));
+  const [users, setUsers] = useState<UserProfile[]>(() => applyMaestroPermissionRuleToUsers(loadStoredUsers()).map(ensureUserResources));
+  const [savedUsersSnapshot, setSavedUsersSnapshot] = useState<UserProfile[]>(() => applyMaestroPermissionRuleToUsers(loadStoredUsers()).map(ensureUserResources));
   const [profilesCatalog, setProfilesCatalog] = useState<ProfileTemplate[]>(() => loadStoredProfiles());
+  const [resourceProfilesCatalog, setResourceProfilesCatalog] = useState<ResourceProfileTemplate[]>(() => loadStoredResourceProfiles());
   const [booksCatalog, setBooksCatalog] = useState<Array<{ id: string; name: string }>>(() => loadStoredBooks());
   const [expandedUsers, setExpandedUsers] = useState<string[]>([]);
+  const [expandedUserSections, setExpandedUserSections] = useState<Record<string, { resources: boolean; books: boolean }>>({});
+  const [expandedResourceGroupsByUser, setExpandedResourceGroupsByUser] = useState<Record<string, string[]>>({});
   const [expandedBooks, setExpandedBooks] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupFilters, setGroupFilters] = useState<string[]>([]);
@@ -487,7 +663,8 @@ export function UserPermissions() {
     group: '',
     role: '',
     profileId: '',
-    profileName: ''
+    profileName: '',
+    resourceProfileIds: [] as string[]
   });
   const [quickCreateForm, setQuickCreateForm] = useState({
     run: '',
@@ -516,7 +693,8 @@ export function UserPermissions() {
   const alignUsersWithSharedConfig = (
     inputUsers: UserProfile[],
     profileData: ProfileTemplate[],
-    bookData: Array<{ id: string; name: string }>
+    bookData: Array<{ id: string; name: string }>,
+    resourceProfileData: ResourceProfileTemplate[]
   ) => {
     const profileById = new Map(profileData.map(profile => [profile.id, profile]));
     const bookNameById = new Map(bookData.map(book => [book.id, book.name]));
@@ -526,8 +704,16 @@ export function UserPermissions() {
       const profile = user.profileId ? profileById.get(user.profileId) : undefined;
 
       if (!profile) {
+        const resourcesFromProfiles = buildResourcesFromResourceProfiles(user.resourceProfileIds || [], resourceProfileData);
+        const hasSelectedResourceProfiles = (user.resourceProfileIds || []).length > 0;
         return {
           ...user,
+          resourceProfileIds: user.resourceProfileIds || [],
+          resourcePermissions: hasSelectedResourceProfiles
+            ? resourcesFromProfiles
+            : (user.resourcePermissions && user.resourcePermissions.length > 0)
+              ? user.resourcePermissions
+              : getDefaultResourcesForUser(user),
           bookPermissions: user.bookPermissions
             .filter(book => catalogBookIds.has(book.bookId))
             .map(book => {
@@ -568,9 +754,17 @@ export function UserPermissions() {
           };
         });
 
+      const resourcesFromProfiles = buildResourcesFromResourceProfiles(user.resourceProfileIds || [], resourceProfileData);
+      const hasSelectedResourceProfiles = (user.resourceProfileIds || []).length > 0;
       return {
         ...user,
         profileName: profile.name,
+        resourceProfileIds: user.resourceProfileIds || [],
+        resourcePermissions: hasSelectedResourceProfiles
+          ? resourcesFromProfiles
+          : (user.resourcePermissions && user.resourcePermissions.length > 0)
+            ? user.resourcePermissions
+            : getDefaultResourcesForUser({ ...user, profileName: profile.name }),
         bookPermissions: [...profileBooks, ...extraBooks]
       };
     });
@@ -580,10 +774,12 @@ export function UserPermissions() {
     const syncFromSharedConfig = () => {
       const latestProfiles = loadStoredProfiles();
       const latestBooks = loadStoredBooks();
+      const latestResourceProfiles = loadStoredResourceProfiles();
       setProfilesCatalog(latestProfiles);
       setBooksCatalog(latestBooks);
-      setUsers(prev => alignUsersWithSharedConfig(prev, latestProfiles, latestBooks));
-      setSavedUsersSnapshot(prev => alignUsersWithSharedConfig(prev, latestProfiles, latestBooks));
+      setResourceProfilesCatalog(latestResourceProfiles);
+      setUsers(prev => alignUsersWithSharedConfig(prev, latestProfiles, latestBooks, latestResourceProfiles));
+      setSavedUsersSnapshot(prev => alignUsersWithSharedConfig(prev, latestProfiles, latestBooks, latestResourceProfiles));
     };
 
     syncFromSharedConfig();
@@ -595,11 +791,49 @@ export function UserPermissions() {
   }, []);
 
   const toggleUser = (userId: string) => {
-    setExpandedUsers(prev =>
-      prev.includes(userId)
+    setExpandedUsers(prev => {
+      const isCurrentlyExpanded = prev.includes(userId);
+      const next = isCurrentlyExpanded
         ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
+        : [...prev, userId];
+
+      if (!isCurrentlyExpanded) {
+        setExpandedUserSections(current => ({
+          ...current,
+          [userId]: current[userId] || { resources: true, books: true }
+        }));
+        setExpandedResourceGroupsByUser(current => ({
+          ...current,
+          [userId]: current[userId] || ['contratos']
+        }));
+      }
+
+      return next;
+    });
+  };
+
+  const toggleUserSection = (userId: string, section: 'resources' | 'books') => {
+    setExpandedUserSections(prev => ({
+      ...prev,
+      [userId]: {
+        resources: prev[userId]?.resources ?? true,
+        books: prev[userId]?.books ?? true,
+        [section]: !(prev[userId]?.[section] ?? true)
+      }
+    }));
+  };
+
+  const toggleUserResourceGroup = (userId: string, groupId: string) => {
+    setExpandedResourceGroupsByUser(prev => {
+      const currentGroups = prev[userId] || ['contratos'];
+      const nextGroups = currentGroups.includes(groupId)
+        ? currentGroups.filter(id => id !== groupId)
+        : [...currentGroups, groupId];
+      return {
+        ...prev,
+        [userId]: nextGroups
+      };
+    });
   };
 
   const toggleBook = (bookId: string) => {
@@ -616,7 +850,8 @@ export function UserPermissions() {
       group: user.group,
       role: user.role,
       profileId: user.profileId || '',
-      profileName: user.profileName || ''
+      profileName: user.profileName || '',
+      resourceProfileIds: user.resourceProfileIds || []
     });
   };
 
@@ -716,7 +951,14 @@ export function UserPermissions() {
       role: quickCreateForm.role.trim(),
       hasCustomPermissions: false,
       disabled: false,
-      bookPermissions: profileBooks
+      bookPermissions: profileBooks,
+      resourceProfileIds: [],
+      resourcePermissions: getDefaultResourcesForUser({
+        profileId: quickCreateForm.profileId,
+        profileName: selectedProfile?.name || '',
+        group: quickCreateForm.group,
+        role: quickCreateForm.role.trim()
+      })
     };
 
     setUsers(prev => [...prev, newUser]);
@@ -961,7 +1203,14 @@ export function UserPermissions() {
         role: draftUser.role.trim(),
         hasCustomPermissions: extraBooks.length > 0,
         disabled: false,
-        bookPermissions: assignedBooks
+        bookPermissions: assignedBooks,
+        resourceProfileIds: [],
+        resourcePermissions: getDefaultResourcesForUser({
+          profileId: draftUser.profileId,
+          profileName: draftUser.profileName,
+          group: draftUser.group,
+          role: draftUser.role.trim()
+        })
       };
     });
 
@@ -1073,8 +1322,18 @@ export function UserPermissions() {
       group: '',
       role: '',
       profileId: '',
-      profileName: ''
+      profileName: '',
+      resourceProfileIds: []
     });
+  };
+
+  const toggleEditResourceProfile = (resourceProfileId: string) => {
+    setEditForm(prev => ({
+      ...prev,
+      resourceProfileIds: prev.resourceProfileIds.includes(resourceProfileId)
+        ? prev.resourceProfileIds.filter(id => id !== resourceProfileId)
+        : [...prev.resourceProfileIds, resourceProfileId]
+    }));
   };
 
   const saveUserChanges = () => {
@@ -1082,6 +1341,8 @@ export function UserPermissions() {
 
     const selectedProfile = profilesCatalog.find(profile => profile.id === editForm.profileId);
     const bookNameById = new Map(booksCatalog.map(book => [book.id, book.name]));
+    const selectedResourcesFromProfiles = buildResourcesFromResourceProfiles(editForm.resourceProfileIds, resourceProfilesCatalog);
+    const hasSelectedResourceProfiles = editForm.resourceProfileIds.length > 0;
 
     setUsers(prev => prev.map(user =>
       user.id === editingUser
@@ -1091,6 +1352,15 @@ export function UserPermissions() {
             role: editForm.role,
             profileId: editForm.profileId,
             profileName: editForm.profileName,
+            resourceProfileIds: editForm.resourceProfileIds,
+            resourcePermissions: hasSelectedResourceProfiles
+              ? selectedResourcesFromProfiles
+              : getDefaultResourcesForUser({
+                  profileId: editForm.profileId,
+                  profileName: editForm.profileName,
+                  group: editForm.group,
+                  role: editForm.role
+                }),
             bookPermissions: selectedProfile
               ? selectedProfile.bookPermissions.map(book => ({
                   bookId: book.bookId,
@@ -1747,6 +2017,12 @@ export function UserPermissions() {
     profileId: user.profileId || '',
     profileName: user.profileName || '',
     disabled: !!user.disabled,
+    resourceProfileIds: [...(user.resourceProfileIds || [])].sort((a, b) => a.localeCompare(b)),
+    resourcePermissions: [...(user.resourcePermissions || [])]
+      .sort((a, b) => a.resourceId.localeCompare(b.resourceId))
+      .map(resource => ({
+        resourceId: resource.resourceId
+      })),
     bookPermissions: [...user.bookPermissions]
       .sort((a, b) => a.bookId.localeCompare(b.bookId))
       .map(book => ({
@@ -2331,6 +2607,20 @@ export function UserPermissions() {
         <div className="space-y-4">
           {filteredUsers.map((user, index) => {
             const isExpanded = expandedUsers.includes(user.id);
+            const resourcesFromProfiles = buildResourcesFromResourceProfiles(user.resourceProfileIds || [], resourceProfilesCatalog);
+            const userResources = (user.resourceProfileIds && user.resourceProfileIds.length > 0)
+              ? resourcesFromProfiles
+              : (user.resourcePermissions && user.resourcePermissions.length > 0)
+                ? user.resourcePermissions
+                : getDefaultResourcesForUser(user);
+            const sectionState = expandedUserSections[user.id] || { resources: true, books: true };
+            const userExpandedGroups = expandedResourceGroupsByUser[user.id] || ['contratos'];
+            const groupedResources = RESOURCE_GROUPS
+              .map(group => ({
+                ...group,
+                resources: userResources.filter(resource => resource.moduleName === group.moduleName)
+              }))
+              .filter(group => group.resources.length > 0);
 
             return (
               <motion.div
@@ -2463,20 +2753,98 @@ export function UserPermissions() {
                       className="overflow-hidden"
                     >
                       <div className="bg-[#f8f9fb] border-t border-[#e1e4e8] px-6 py-4">
-                        {/* Add Books Button */}
-                        <div className="flex items-center justify-between mb-4">
-                          <h4 className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
-                            Libros Asignados ({user.bookPermissions.length})
-                          </h4>
+                        <div className="mb-4 bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
                           <button
-                            onClick={() => openAddBooksModal(user.id, user.name)}
-                            className="px-3 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 text-sm"
-                            style={{ fontWeight: 500 }}
+                            onClick={() => toggleUserSection(user.id, 'resources')}
+                            className="w-full px-5 py-4 flex items-center justify-between hover:bg-[#f8fafc] transition-colors"
                           >
-                            <Plus className="w-4 h-4" />
-                            Agregar Libro
+                            <h4 className="text-sm text-[#374151]" style={{ fontWeight: 600 }}>
+                              Recursos Asignados ({userResources.length})
+                            </h4>
+                            {sectionState.resources ? (
+                              <ChevronDown className="w-4 h-4 text-[#6b7280]" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-[#6b7280]" />
+                            )}
                           </button>
+
+                          {sectionState.resources && (
+                            <div className="border-t border-[#e5e7eb] bg-[#f8f9fb]">
+                              {userResources.length === 0 ? (
+                                <div className="px-5 py-4 text-sm text-[#6b7280]">
+                                  Este usuario no tiene recursos asignados
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="grid grid-cols-[1fr_140px] gap-4 px-6 py-3 border-b border-[#e5e7eb] text-[#111827] bg-white">
+                                    <div style={{ fontWeight: 600 }}>Recurso</div>
+                                    <div className="text-center" style={{ fontWeight: 600 }}>Permiso</div>
+                                  </div>
+                                  {groupedResources.map(group => {
+                                    const groupOpen = userExpandedGroups.includes(group.id);
+                                    return (
+                                      <div key={`${user.id}-${group.id}`} className="border-b border-[#e5e7eb] last:border-b-0 bg-white">
+                                        <button
+                                          onClick={() => toggleUserResourceGroup(user.id, group.id)}
+                                          className="w-full grid grid-cols-[1fr_140px] gap-4 px-6 py-4 text-left hover:bg-[#f8fafc] transition-colors"
+                                        >
+                                          <div className="flex items-center gap-2 text-[#111827]" style={{ fontWeight: 600 }}>
+                                            {groupOpen ? <ChevronDown className="w-4 h-4 text-[#6b7280]" /> : <ChevronRight className="w-4 h-4 text-[#6b7280]" />}
+                                            {group.name}
+                                          </div>
+                                          <div />
+                                        </button>
+
+                                        {groupOpen && group.resources.map(resource => (
+                                          <div key={`${user.id}-${resource.resourceId}`} className="grid grid-cols-[1fr_140px] gap-4 px-6 py-4 border-t border-[#f1f5f9]">
+                                            <div className="pl-10 text-[#1f2937]">{resource.resourceName}</div>
+                                            <div className="flex justify-center">
+                                              <div className="w-8 h-8 rounded border bg-[#dbeafe] border-[#93c5fd] text-[#2563eb] flex items-center justify-center">
+                                                <CheckSquare className="w-4 h-4" />
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })}
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
+
+                        <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
+                          <button
+                            onClick={() => toggleUserSection(user.id, 'books')}
+                            className="w-full px-5 py-4 flex items-center justify-between hover:bg-[#f8fafc] transition-colors"
+                          >
+                            <h4 className="text-sm text-[#374151]" style={{ fontWeight: 600 }}>
+                              Libros Asignados ({user.bookPermissions.length})
+                            </h4>
+                            {sectionState.books ? (
+                              <ChevronDown className="w-4 h-4 text-[#6b7280]" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-[#6b7280]" />
+                            )}
+                          </button>
+
+                          {sectionState.books && (
+                            <div className="border-t border-[#e5e7eb] bg-[#f8f9fb] p-4">
+                              {/* Add Books Button */}
+                              <div className="flex items-center justify-between mb-4">
+                                <h4 className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                  Libros Asignados ({user.bookPermissions.length})
+                                </h4>
+                                <button
+                                  onClick={() => openAddBooksModal(user.id, user.name)}
+                                  className="px-3 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 text-sm"
+                                  style={{ fontWeight: 500 }}
+                                >
+                                  <Plus className="w-4 h-4" />
+                                  Agregar Libro
+                                </button>
+                              </div>
 
                         {user.bookPermissions.length === 0 ? (
                           <div className="text-center py-8">
@@ -2815,6 +3183,9 @@ export function UserPermissions() {
                             </div>
                           </>
                         )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </motion.div>
                   )}
@@ -3654,6 +4025,78 @@ export function UserPermissions() {
                   </select>
                   <p className="text-xs text-[#6b7280] mt-2">
                     Sin perfil, el usuario puede agregar cualquier libro y permiso. Si elige un perfil, se aplican permisos base.
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                      Perfiles de Recursos
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditForm(prev => ({
+                            ...prev,
+                            resourceProfileIds: resourceProfilesCatalog.map(profile => profile.id)
+                          }))
+                        }
+                        className="text-xs text-[#2563eb] hover:text-[#1d4ed8]"
+                        style={{ fontWeight: 600 }}
+                      >
+                        Seleccionar todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditForm(prev => ({
+                            ...prev,
+                            resourceProfileIds: []
+                          }))
+                        }
+                        className="text-xs text-[#6b7280] hover:text-[#374151]"
+                        style={{ fontWeight: 600 }}
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                  </div>
+
+                  {resourceProfilesCatalog.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-[#6b7280] bg-[#f8f9fb] border border-[#e5e7eb] rounded-lg">
+                      No hay perfiles de recursos disponibles.
+                    </div>
+                  ) : (
+                    <div className="max-h-44 overflow-y-auto border border-[#d1d5db] rounded-lg bg-white divide-y divide-[#eef2f7]">
+                      {resourceProfilesCatalog.map(profile => {
+                        const checked = editForm.resourceProfileIds.includes(profile.id);
+                        return (
+                          <label
+                            key={profile.id}
+                            className="flex items-start gap-3 px-4 py-3 hover:bg-[#f8fafc] cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleEditResourceProfile(profile.id)}
+                              className="mt-0.5 w-4 h-4 rounded border-[#9ca3af] text-[#4f46e5] focus:ring-[#4f46e5]"
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm text-[#1f2937]" style={{ fontWeight: 600 }}>
+                                {profile.name}
+                              </div>
+                              <div className="text-xs text-[#6b7280] mt-0.5">
+                                {resolveResourceIdsForProfile(profile).length} recurso(s)
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="text-xs text-[#6b7280] mt-2">
+                    Puedes seleccionar uno o más perfiles de recursos para este usuario.
                   </p>
                 </div>
               </div>
