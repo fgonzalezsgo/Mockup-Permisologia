@@ -639,13 +639,14 @@ export function UserPermissions() {
   const [expandedUserSections, setExpandedUserSections] = useState<Record<string, { resources: boolean; books: boolean }>>({});
   const [expandedResourceGroupsByUser, setExpandedResourceGroupsByUser] = useState<Record<string, string[]>>({});
   const [expandedBooks, setExpandedBooks] = useState<string[]>([]);
+  const [expandedResources, setExpandedResources] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupFilters, setGroupFilters] = useState<string[]>([]);
   const [bookFilters, setBookFilters] = useState<string[]>([]);
   const [roleFilters, setRoleFilters] = useState<string[]>([]);
   const [permissionFilters, setPermissionFilters] = useState<Array<keyof PermissionSet>>([]);
   const [profileFilters, setProfileFilters] = useState<string[]>([]);
-  const [isBooksListView, setIsBooksListView] = useState(false);
+  const [viewMode, setViewMode] = useState<'users' | 'books' | 'resources'>('users');
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [isQuickCreateUserModalOpen, setIsQuickCreateUserModalOpen] = useState(false);
@@ -841,6 +842,14 @@ export function UserPermissions() {
       prev.includes(bookId)
         ? prev.filter(id => id !== bookId)
         : [...prev, bookId]
+    );
+  };
+
+  const toggleResource = (resourceId: string) => {
+    setExpandedResources(prev =>
+      prev.includes(resourceId)
+        ? prev.filter(id => id !== resourceId)
+        : [...prev, resourceId]
     );
   };
 
@@ -1888,10 +1897,27 @@ export function UserPermissions() {
     return user.bookPermissions.some(book => canEditBookPermissions(user, book));
   };
 
+  const getEffectiveResourcesForUser = (user: UserProfile) => {
+    const resourcesFromProfiles = buildResourcesFromResourceProfiles(user.resourceProfileIds || [], resourceProfilesCatalog);
+    if ((user.resourceProfileIds && user.resourceProfileIds.length > 0)) {
+      return resourcesFromProfiles;
+    }
+    if (user.resourcePermissions && user.resourcePermissions.length > 0) {
+      return user.resourcePermissions;
+    }
+    return getDefaultResourcesForUser(user);
+  };
+
   const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.run.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const normalizedSearch = searchQuery.toLowerCase();
+    const userResources = getEffectiveResourcesForUser(user);
+    const matchesSearch = user.name.toLowerCase().includes(normalizedSearch) ||
+      user.run.toLowerCase().includes(normalizedSearch) ||
+      user.email.toLowerCase().includes(normalizedSearch) ||
+      userResources.some(resource =>
+        resource.resourceName.toLowerCase().includes(normalizedSearch) ||
+        resource.moduleName.toLowerCase().includes(normalizedSearch)
+      );
     const matchesGroup = groupFilters.length === 0 || groupFilters.includes(user.group);
     const matchesRole = roleFilters.length === 0 || roleFilters.includes(user.role);
     const matchesProfile = profileFilters.length === 0 || (!!user.profileId && profileFilters.includes(user.profileId));
@@ -1929,6 +1955,17 @@ export function UserPermissions() {
         .filter(({ permission }) => permissionFilters.length === 0 || permissionFilters.some(permissionType => permission.permissions[permissionType]))
     }))
     .filter(book => bookFilters.length === 0 || bookFilters.includes(book.bookId));
+
+  const resourcesFromFilteredUsers = RESOURCE_CATALOG
+    .map(resource => ({
+      resource,
+      assignments: filteredUsers
+        .filter(user => getEffectiveResourcesForUser(user).some(item => item.resourceId === resource.resourceId))
+        .map(user => ({ user }))
+    }))
+    .filter(entry => entry.assignments.length > 0);
+
+  const isBooksListView = viewMode === 'books';
 
   const toggleAllPermissionsForBook = (
     bookId: string,
@@ -2169,7 +2206,7 @@ export function UserPermissions() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar por nombre, RUN o email..."
+                placeholder="Buscar por nombre, RUN, email o recurso..."
                 className="w-full pl-12 pr-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
               />
             </div>
@@ -2222,13 +2259,20 @@ export function UserPermissions() {
 
           <div className="mt-4">
             <div className="flex items-center justify-center gap-3">
-              <button
-                onClick={() => setIsBooksListView(prev => !prev)}
-                className="px-4 py-2.5 rounded-lg bg-white text-[#4f46e5] border border-[#c7d2fe] hover:bg-[#eef2ff] transition-colors shadow-sm"
-                style={{ fontWeight: 600 }}
-              >
-                {isBooksListView ? 'Ver listado de usuarios' : 'Ver listado de libros'}
-              </button>
+              <div className="flex items-center gap-2 px-3 py-2 bg-white border border-[#c7d2fe] rounded-lg shadow-sm">
+                <label className="text-sm text-[#4f46e5]" style={{ fontWeight: 600 }}>
+                  Vista
+                </label>
+                <select
+                  value={viewMode}
+                  onChange={(e) => setViewMode(e.target.value as 'users' | 'books' | 'resources')}
+                  className="px-3 py-1.5 rounded-md border border-[#d1d5db] text-sm text-[#1f2937] bg-white focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                >
+                  <option value="users">Listado de usuarios</option>
+                  <option value="books">Listado de libros</option>
+                  <option value="resources">Listado de recursos</option>
+                </select>
+              </div>
               <button
                 onClick={openCreateUserModal}
                 className="px-4 py-2.5 rounded-lg bg-white text-[#4f46e5] border border-[#c7d2fe] hover:bg-[#eef2ff] transition-colors shadow-sm flex items-center gap-2"
@@ -2312,7 +2356,7 @@ export function UserPermissions() {
         </div>
 
         {/* Users List */}
-        {isBooksListView ? (
+        {viewMode === 'books' ? (
           <div className="space-y-4">
             {booksFromFilteredUsers.map((bookEntry, index) => {
               const isExpanded = expandedBooks.includes(bookEntry.bookId);
@@ -2602,6 +2646,101 @@ export function UserPermissions() {
                 </motion.div>
               );
             })}
+          </div>
+        ) : viewMode === 'resources' ? (
+          <div className="space-y-4">
+            {resourcesFromFilteredUsers.length === 0 ? (
+              <div className="bg-white rounded-xl border border-[#e1e4e8] px-6 py-10 text-center text-[#6b7280]">
+                No hay recursos con usuarios asignados para los filtros actuales.
+              </div>
+            ) : (
+              resourcesFromFilteredUsers.map((resourceEntry, index) => {
+                const isExpanded = expandedResources.includes(resourceEntry.resource.resourceId);
+                return (
+                  <motion.div
+                    key={resourceEntry.resource.resourceId}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="bg-white rounded-xl border border-[#e1e4e8] overflow-hidden shadow-sm"
+                  >
+                    <div className="flex items-center gap-4 px-6 py-5">
+                      <div className="w-12 h-12 rounded-xl bg-[#0ea5e9] flex items-center justify-center flex-shrink-0">
+                        <Shield className="w-6 h-6 text-white" />
+                      </div>
+
+                      <button
+                        onClick={() => toggleResource(resourceEntry.resource.resourceId)}
+                        className="flex-1 flex items-center gap-3 text-left"
+                      >
+                        <div className="flex-1">
+                          <h3 className="text-lg mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
+                            {resourceEntry.resource.resourceName}
+                          </h3>
+                          <p className="text-sm text-[#0284c7]" style={{ fontWeight: 500 }}>
+                            {resourceEntry.resource.moduleName} · {resourceEntry.assignments.length} usuarios
+                          </p>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronDown className="w-5 h-5 text-[#6b7280]" />
+                        ) : (
+                          <ChevronRight className="w-5 h-5 text-[#6b7280]" />
+                        )}
+                      </button>
+                    </div>
+
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.3 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="bg-[#f8f9fb] border-t border-[#e1e4e8] px-6 py-4">
+                            <div className="grid grid-cols-[2fr_1fr_1fr] gap-4 px-4 py-3 mb-2 bg-white rounded-lg border border-[#e5e7eb]">
+                              <div className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                Usuario
+                              </div>
+                              <div className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                Grupo
+                              </div>
+                              <div className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                Perfil
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              {resourceEntry.assignments.map(({ user }) => (
+                                <div
+                                  key={`${resourceEntry.resource.resourceId}-${user.id}`}
+                                  className="grid grid-cols-[2fr_1fr_1fr] gap-4 px-4 py-4 bg-white rounded-lg border border-[#e5e7eb] items-center"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div
+                                      className="w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0"
+                                      style={{ backgroundColor: user.avatarColor, fontWeight: 600 }}
+                                    >
+                                      {user.avatar}
+                                    </div>
+                                    <div>
+                                      <div style={{ fontWeight: 500, color: '#1f2937' }}>{user.name}</div>
+                                      <div className="text-sm text-[#6b7280]">RUN: {user.run}</div>
+                                    </div>
+                                  </div>
+                                  <div className="text-sm text-[#374151]">{user.group}</div>
+                                  <div className="text-sm text-[#4f46e5]">{user.profileName || 'Sin perfil'}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                );
+              })
+            )}
           </div>
         ) : (
         <div className="space-y-4">
