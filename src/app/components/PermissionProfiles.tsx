@@ -22,11 +22,18 @@ interface Profile {
   color: string;
   usersCount: number;
   bookPermissions: BookPermission[];
+  resourceIds?: string[];
 }
 
 interface BookCatalogItem {
   id: string;
   name: string;
+}
+
+interface ResourceCatalogItem {
+  id: string;
+  name: string;
+  moduleName: string;
 }
 
 interface VisualizerAssignableUser {
@@ -173,11 +180,37 @@ const DEFAULT_BOOKS: BookCatalogItem[] = [
   { id: '5', name: 'Libro de Órdenes de Cambio' }
 ];
 
+const RESOURCE_CATALOG: ResourceCatalogItem[] = [
+  { id: 'solicitudes_contratos', name: 'Solicitudes de Contratos', moduleName: 'Contratos' },
+  { id: 'procesos_batch', name: 'Procesos Batch', moduleName: 'Contratos' },
+  { id: 'firmas', name: 'Firmas', moduleName: 'Contratos' },
+  { id: 'acuerdos', name: 'Acuerdos', moduleName: 'Cobranzas' },
+  { id: 'maestros', name: 'Maestros', moduleName: 'Cobranzas' },
+  { id: 'cuentas_fecha_ultima_aprobacion', name: 'Cuentas Fecha Última Aprobación', moduleName: 'Cobranzas' },
+  { id: 'script_pagos', name: 'Script Pagos', moduleName: 'Cobranzas' },
+  { id: 'transacciones_r', name: 'Transacciones (R)', moduleName: 'Cobranzas' },
+  { id: 'rechazos_cr', name: 'Rechazos (CR)', moduleName: 'Cobranzas' },
+  { id: 'usos', name: 'Usos', moduleName: 'Cobranzas' },
+  { id: 'editor_categorias', name: 'Editor Categorías', moduleName: 'Centro de Ayuda' },
+  { id: 'editor_preguntas_frecuentes', name: 'Editor Preguntas Frecuentes', moduleName: 'Centro de Ayuda' },
+  { id: 'log_aplicacion', name: 'Log de aplicación', moduleName: 'SuperAdministrador' },
+  { id: 'mensajes', name: 'Mensajes', moduleName: 'SuperAdministrador' },
+  { id: 'reinicio_cache', name: 'Reinicio de Caché', moduleName: 'SuperAdministrador' },
+  { id: 'imagen_login', name: 'Imagen de Login', moduleName: 'SuperAdministrador' },
+  { id: 'repetir_firma_toma_conocimiento', name: 'Repetir Firma o Toma de Conocimiento', moduleName: 'SuperAdministrador' },
+  { id: 'intentos_fallidos', name: 'Intentos Fallidos', moduleName: 'SuperAdministrador' }
+];
+
 const normalizeProfiles = (input: Profile[]): Profile[] =>
-  input.filter(profile =>
-    profile.id !== '6' &&
-    profile.name.toLowerCase() !== 'visualizador'
-  );
+  input
+    .filter(profile =>
+      profile.id !== '6' &&
+      profile.name.toLowerCase() !== 'visualizador'
+    )
+    .map(profile => ({
+      ...profile,
+      resourceIds: Array.isArray(profile.resourceIds) ? profile.resourceIds : []
+    }));
 
 const loadStoredProfiles = (): Profile[] => {
   try {
@@ -235,7 +268,12 @@ export function PermissionProfiles() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [addBooksModal, setAddBooksModal] = useState<{ profileId: string; profileName: string } | null>(null);
+  const [addResourcesModal, setAddResourcesModal] = useState<{ profileId: string; profileName: string } | null>(null);
   const [selectedBooksToAdd, setSelectedBooksToAdd] = useState<string[]>([]);
+  const [selectedResourcesToAdd, setSelectedResourcesToAdd] = useState<string[]>([]);
+  const [expandedResourceModulesInModal, setExpandedResourceModulesInModal] = useState<string[]>([]);
+  const [expandedAssignedResourcesByProfile, setExpandedAssignedResourcesByProfile] = useState<Record<string, string[]>>({});
+  const [assignedResourcesSectionOpenByProfile, setAssignedResourcesSectionOpenByProfile] = useState<Record<string, boolean>>({});
   const [newBookName, setNewBookName] = useState('');
   const [formData, setFormData] = useState({
     name: '',
@@ -314,7 +352,8 @@ export function PermissionProfiles() {
         ...profileToDuplicate,
         id: Date.now().toString(),
         name: `${profileToDuplicate.name} (Copia)`,
-        usersCount: 0
+        usersCount: 0,
+        resourceIds: [...(profileToDuplicate.resourceIds || [])]
       };
       setProfiles(prev => [...prev, newProfile]);
     }
@@ -408,7 +447,8 @@ export function PermissionProfiles() {
           bookId: book.id,
           bookName: book.name,
           permissions: { read: false, draft: false, write: false, acknowledge: false }
-        }))
+        })),
+        resourceIds: []
       };
       setProfiles(prev => [...prev, newProfile]);
     }
@@ -428,10 +468,58 @@ export function PermissionProfiles() {
     setNewBookName('');
   };
 
+  const openAddResourcesModal = (profileId: string, profileName: string) => {
+    setAddResourcesModal({ profileId, profileName });
+    setSelectedResourcesToAdd([]);
+    const availableResources = getAvailableResourcesForProfile(profileId);
+    const modules = Array.from(new Set(availableResources.map(resource => resource.moduleName)));
+    setExpandedResourceModulesInModal(modules);
+  };
+
+  const closeAddResourcesModal = () => {
+    setAddResourcesModal(null);
+    setSelectedResourcesToAdd([]);
+    setExpandedResourceModulesInModal([]);
+  };
+
   const toggleBookSelection = (bookId: string) => {
     setSelectedBooksToAdd(prev =>
       prev.includes(bookId) ? prev.filter(id => id !== bookId) : [...prev, bookId]
     );
+  };
+
+  const toggleResourceSelection = (resourceId: string) => {
+    setSelectedResourcesToAdd(prev =>
+      prev.includes(resourceId) ? prev.filter(id => id !== resourceId) : [...prev, resourceId]
+    );
+  };
+
+  const toggleResourceModuleInModal = (moduleName: string) => {
+    setExpandedResourceModulesInModal(prev =>
+      prev.includes(moduleName)
+        ? prev.filter(name => name !== moduleName)
+        : [...prev, moduleName]
+    );
+  };
+
+  const toggleAssignedResourcesSection = (profileId: string) => {
+    setAssignedResourcesSectionOpenByProfile(prev => ({
+      ...prev,
+      [profileId]: !(prev[profileId] ?? true)
+    }));
+  };
+
+  const toggleAssignedResourceModule = (profileId: string, moduleName: string) => {
+    setExpandedAssignedResourcesByProfile(prev => {
+      const current = prev[profileId] || [];
+      const next = current.includes(moduleName)
+        ? current.filter(name => name !== moduleName)
+        : [...current, moduleName];
+      return {
+        ...prev,
+        [profileId]: next
+      };
+    });
   };
 
   const getAvailableBooksForProfile = (profileId: string) => {
@@ -439,6 +527,13 @@ export function PermissionProfiles() {
     if (!profile) return booksCatalog;
     const assignedBookIds = new Set(profile.bookPermissions.map(book => book.bookId));
     return booksCatalog.filter(book => !assignedBookIds.has(book.id));
+  };
+
+  const getAvailableResourcesForProfile = (profileId: string) => {
+    const profile = profiles.find(p => p.id === profileId);
+    if (!profile) return RESOURCE_CATALOG;
+    const assignedResourceIds = new Set(profile.resourceIds || []);
+    return RESOURCE_CATALOG.filter(resource => !assignedResourceIds.has(resource.id));
   };
 
   const addBooksToProfile = () => {
@@ -462,10 +557,36 @@ export function PermissionProfiles() {
     closeAddBooksModal();
   };
 
+  const addResourcesToProfile = () => {
+    if (!addResourcesModal || selectedResourcesToAdd.length === 0) return;
+
+    setProfiles(prev => prev.map(profile => {
+      if (profile.id !== addResourcesModal.profileId) return profile;
+      const existing = new Set(profile.resourceIds || []);
+      const merged = [...(profile.resourceIds || [])];
+      selectedResourcesToAdd.forEach(resourceId => {
+        if (!existing.has(resourceId)) {
+          merged.push(resourceId);
+        }
+      });
+      return { ...profile, resourceIds: merged };
+    }));
+
+    closeAddResourcesModal();
+  };
+
   const removeBookFromProfile = (profileId: string, bookId: string) => {
     setProfiles(prev => prev.map(profile =>
       profile.id === profileId
         ? { ...profile, bookPermissions: profile.bookPermissions.filter(book => book.bookId !== bookId) }
+        : profile
+    ));
+  };
+
+  const removeResourceFromProfile = (profileId: string, resourceId: string) => {
+    setProfiles(prev => prev.map(profile =>
+      profile.id === profileId
+        ? { ...profile, resourceIds: (profile.resourceIds || []).filter(id => id !== resourceId) }
         : profile
     ));
   };
@@ -504,6 +625,7 @@ export function PermissionProfiles() {
   };
 
   const isReadonlyProfilesView = activeTab === 'profiles_clone';
+  const resourceCatalogById = new Map(RESOURCE_CATALOG.map(resource => [resource.id, resource]));
 
   return (
     <div className="bg-[#f8f9fb] min-h-screen">
@@ -622,6 +744,26 @@ export function PermissionProfiles() {
             <div className="space-y-4">
               {profiles.map((profile, index) => {
                 const isExpanded = expandedProfiles.includes(profile.id);
+                const profileResources = (profile.resourceIds || [])
+                  .map(resourceId => {
+                    const resource = resourceCatalogById.get(resourceId);
+                    if (!resource) return null;
+                    return { resourceId, ...resource };
+                  })
+                  .filter((item): item is { resourceId: string; id: string; name: string; moduleName: string } => item !== null)
+                  .sort((a, b) => {
+                    const moduleCompare = a.moduleName.localeCompare(b.moduleName);
+                    if (moduleCompare !== 0) return moduleCompare;
+                    return a.name.localeCompare(b.name);
+                  });
+                const profileResourcesByModule = profileResources.reduce<Record<string, Array<{ resourceId: string; id: string; name: string; moduleName: string }>>>((acc, resource) => {
+                  if (!acc[resource.moduleName]) acc[resource.moduleName] = [];
+                  acc[resource.moduleName].push(resource);
+                  return acc;
+                }, {});
+                const profileResourceModuleNames = Object.keys(profileResourcesByModule).sort((a, b) => a.localeCompare(b));
+                const isAssignedResourcesSectionOpen = assignedResourcesSectionOpenByProfile[profile.id] ?? true;
+                const expandedAssignedModules = expandedAssignedResourcesByProfile[profile.id] ?? profileResourceModuleNames;
 
                 return (
                   <motion.div
@@ -904,6 +1046,100 @@ export function PermissionProfiles() {
                                   )}
                                 </motion.div>
                               ))}
+                            </div>
+
+                            <div className="mt-6 border border-[#d1d5db] rounded-xl overflow-hidden bg-white">
+                              <div className="flex items-center justify-between px-4 py-3 border-b border-[#e5e7eb] bg-[#f9fafb]">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleAssignedResourcesSection(profile.id)}
+                                  className="flex-1 flex items-center justify-between text-left"
+                                >
+                                  <h4 style={{ fontWeight: 700, color: '#1f2937' }}>
+                                    Recursos Asignados ({profileResources.length})
+                                  </h4>
+                                  {isAssignedResourcesSectionOpen ? (
+                                    <ChevronDown className="w-5 h-5 text-[#6b7280]" />
+                                  ) : (
+                                    <ChevronRight className="w-5 h-5 text-[#6b7280]" />
+                                  )}
+                                </button>
+                                {!isReadonlyProfilesView && (
+                                  <button
+                                    onClick={() => openAddResourcesModal(profile.id, profile.name)}
+                                    className="ml-3 px-3 py-2 bg-[#0ea5e9] text-white rounded-lg hover:bg-[#0284c7] transition-colors flex items-center gap-2 text-sm"
+                                    style={{ fontWeight: 500 }}
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                    Agregar Recursos
+                                  </button>
+                                )}
+                              </div>
+
+                              {isAssignedResourcesSectionOpen && (
+                                <div>
+                                  <div className="grid grid-cols-[1fr_120px] gap-4 px-5 py-3 border-b border-[#e5e7eb] bg-[#f8fafc]">
+                                    <div style={{ fontWeight: 700, color: '#111827' }}>Recurso</div>
+                                    <div className="text-center" style={{ fontWeight: 700, color: '#111827' }}>Permiso</div>
+                                  </div>
+
+                                  {profileResources.length === 0 ? (
+                                    <div className="px-4 py-6 text-sm text-[#6b7280] text-center">
+                                      Este perfil no tiene recursos asignados.
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      {profileResourceModuleNames.map(moduleName => {
+                                        const moduleOpen = expandedAssignedModules.includes(moduleName);
+                                        const moduleResources = profileResourcesByModule[moduleName]
+                                          .slice()
+                                          .sort((a, b) => a.name.localeCompare(b.name));
+
+                                        return (
+                                          <div key={`${profile.id}-${moduleName}`} className="border-b border-[#e5e7eb] last:border-b-0">
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleAssignedResourceModule(profile.id, moduleName)}
+                                              className="w-full grid grid-cols-[1fr_120px] gap-4 px-5 py-4 bg-white hover:bg-[#f8fafc] transition-colors text-left"
+                                            >
+                                              <div className="flex items-center gap-2" style={{ fontWeight: 700, color: '#111827' }}>
+                                                {moduleOpen ? (
+                                                  <ChevronDown className="w-4 h-4 text-[#6b7280]" />
+                                                ) : (
+                                                  <ChevronRight className="w-4 h-4 text-[#6b7280]" />
+                                                )}
+                                                {moduleName}
+                                              </div>
+                                              <div />
+                                            </button>
+
+                                            {moduleOpen && moduleResources.map(resource => (
+                                              <div
+                                                key={`${profile.id}-${resource.resourceId}`}
+                                                className="grid grid-cols-[1fr_120px] gap-4 px-14 py-4 border-t border-[#eef2f7] bg-white items-center"
+                                              >
+                                                <div style={{ color: '#0f172a' }}>{resource.name}</div>
+                                                <div className="flex justify-center">
+                                                  {!isReadonlyProfilesView && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => removeResourceFromProfile(profile.id, resource.resourceId)}
+                                                      className="w-10 h-10 rounded-md border border-[#fecaca] bg-white text-[#ef4444] hover:bg-[#fee2e2] flex items-center justify-center transition-colors"
+                                                      title="Quitar recurso del perfil"
+                                                    >
+                                                      <Trash2 className="w-5 h-5" />
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </motion.div>
@@ -1212,6 +1448,137 @@ export function PermissionProfiles() {
                   style={{ fontWeight: 600 }}
                 >
                   Agregar {selectedBooksToAdd.length > 0 ? `(${selectedBooksToAdd.length})` : ''}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Resources Modal */}
+      <AnimatePresence>
+        {addResourcesModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center p-8 z-50"
+            onClick={closeAddResourcesModal}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl shadow-2xl p-8 max-w-lg w-full max-h-[80vh] overflow-y-auto"
+            >
+              <div className="flex items-start gap-4 mb-6">
+                <div className="w-12 h-12 rounded-xl bg-[#ecfeff] flex items-center justify-center">
+                  <Plus className="w-6 h-6 text-[#0ea5e9]" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-2xl mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
+                    Agregar Recursos
+                  </h3>
+                  <p className="text-sm text-[#6b7280]">
+                    Selecciona recursos para <span style={{ fontWeight: 500 }}>{addResourcesModal.profileName}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                {(() => {
+                  const availableResources = getAvailableResourcesForProfile(addResourcesModal.profileId);
+                  const resourcesByModule = availableResources.reduce<Record<string, ResourceCatalogItem[]>>((acc, resource) => {
+                    if (!acc[resource.moduleName]) acc[resource.moduleName] = [];
+                    acc[resource.moduleName].push(resource);
+                    return acc;
+                  }, {});
+                  const moduleNames = Object.keys(resourcesByModule).sort((a, b) => a.localeCompare(b));
+                  if (availableResources.length === 0) {
+                    return (
+                      <div className="text-center py-8">
+                        <p className="text-[#6b7280]">No hay recursos disponibles para agregar</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="rounded-lg border border-[#d1d5db] overflow-hidden bg-white">
+                      <div className="grid grid-cols-[1fr_120px] gap-4 px-4 py-3 border-b border-[#e5e7eb] bg-[#f8fafc]">
+                        <div style={{ fontWeight: 700, color: '#111827' }}>Recurso</div>
+                        <div className="text-center" style={{ fontWeight: 700, color: '#111827' }}>Permiso</div>
+                      </div>
+
+                      {moduleNames.map(moduleName => {
+                        const isModuleExpanded = expandedResourceModulesInModal.includes(moduleName);
+                        const moduleResources = resourcesByModule[moduleName]
+                          .slice()
+                          .sort((a, b) => a.name.localeCompare(b.name));
+
+                        return (
+                          <div key={moduleName} className="border-b border-[#e5e7eb] last:border-b-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleResourceModuleInModal(moduleName)}
+                              className="w-full grid grid-cols-[1fr_120px] gap-4 px-4 py-3 bg-[#f9fafb] hover:bg-[#f3f4f6] transition-colors text-left"
+                            >
+                              <div className="flex items-center gap-2" style={{ fontWeight: 700, color: '#111827' }}>
+                                {isModuleExpanded ? (
+                                  <ChevronDown className="w-4 h-4 text-[#6b7280]" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4 text-[#6b7280]" />
+                                )}
+                                {moduleName}
+                              </div>
+                              <div />
+                            </button>
+
+                            {isModuleExpanded && moduleResources.map(resource => {
+                              const checked = selectedResourcesToAdd.includes(resource.id);
+                              return (
+                                <button
+                                  key={resource.id}
+                                  type="button"
+                                  onClick={() => toggleResourceSelection(resource.id)}
+                                  className="w-full grid grid-cols-[1fr_120px] gap-4 px-10 py-3 border-t border-[#eef2f7] hover:bg-[#f8fafc] transition-colors text-left"
+                                >
+                                  <div style={{ color: '#0f172a' }}>{resource.name}</div>
+                                  <div className="flex justify-center">
+                                    <span className={`w-8 h-8 rounded border flex items-center justify-center ${
+                                      checked
+                                        ? 'bg-[#dbeafe] border-[#93c5fd] text-[#2563eb]'
+                                        : 'bg-white border-[#94a3b8] text-transparent'
+                                    }`}>
+                                      <Check className="w-4 h-4" strokeWidth={3} />
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={closeAddResourcesModal}
+                  className="flex-1 px-4 py-3 text-[#374151] hover:bg-[#f3f4f6] rounded-lg transition-colors border border-[#d1d5db]"
+                  style={{ fontWeight: 500 }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={addResourcesToProfile}
+                  disabled={selectedResourcesToAdd.length === 0}
+                  className="flex-1 px-4 py-3 bg-[#0ea5e9] text-white hover:bg-[#0284c7] rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ fontWeight: 600 }}
+                >
+                  Agregar {selectedResourcesToAdd.length > 0 ? `(${selectedResourcesToAdd.length})` : ''}
                 </button>
               </div>
             </motion.div>
