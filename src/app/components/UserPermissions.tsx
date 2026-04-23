@@ -35,6 +35,7 @@ interface ResourceProfileTemplate {
 }
 
 type PermissionSet = BookPermission['permissions'];
+type HierarchyPermission = 'read' | 'draft' | 'write';
 
 interface ProfileTemplate {
   id: string;
@@ -102,6 +103,26 @@ interface MultiSelectFilterProps {
   selectedValues: string[];
   onChange: (values: string[]) => void;
 }
+
+const DEFAULT_CARGO_OPTIONS = [
+  'Director de proyecto',
+  'Jefe de obra',
+  'Encargado de obra',
+  'Ingeniero de obra',
+  'Jefe de calidad',
+  'Jefe de vigilancia ambiental',
+  'Jefe de seguridad',
+  'Jefe de servicios administrativos',
+  'Jefe de compras',
+  'Subcontratistas/obreros',
+  'Topografo/Jefe de topografia'
+];
+
+const parseRolesFromValue = (value: string) =>
+  value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
 
 const normalizeBookName = (value: string) =>
   value
@@ -667,6 +688,14 @@ export function UserPermissions() {
     profileName: '',
     resourceProfileIds: [] as string[]
   });
+  const [editSelectedRoles, setEditSelectedRoles] = useState<string[]>([]);
+  const [editCustomRoles, setEditCustomRoles] = useState<string[]>([]);
+  const [isEditRolesDropdownOpen, setIsEditRolesDropdownOpen] = useState(false);
+  const [editRoleSearch, setEditRoleSearch] = useState('');
+  const [isEditResourceProfilesDropdownOpen, setIsEditResourceProfilesDropdownOpen] = useState(false);
+  const [editResourceProfilesSearch, setEditResourceProfilesSearch] = useState('');
+  const editRolesDropdownRef = useRef<HTMLDivElement | null>(null);
+  const editResourceProfilesDropdownRef = useRef<HTMLDivElement | null>(null);
   const [quickCreateForm, setQuickCreateForm] = useState({
     run: '',
     name: '',
@@ -683,6 +712,18 @@ export function UserPermissions() {
   const [resourceSearchInAddModal, setResourceSearchInAddModal] = useState('');
   const [addUsersToBookModal, setAddUsersToBookModal] = useState<{ bookId: string; bookName: string } | null>(null);
   const [selectedUsersToAddToBook, setSelectedUsersToAddToBook] = useState<string[]>([]);
+  const [isBulkPermissionEditorOpen, setIsBulkPermissionEditorOpen] = useState(false);
+  const [bulkPermissionDraftUsers, setBulkPermissionDraftUsers] = useState<UserProfile[] | null>(null);
+  const [bulkPermissionSelectedUserIds, setBulkPermissionSelectedUserIds] = useState<string[]>([]);
+  const [bulkPermissionSelectedBookIds, setBulkPermissionSelectedBookIds] = useState<string[]>([]);
+  const [bulkPermissionUserSearch, setBulkPermissionUserSearch] = useState('');
+  const [bulkPermissionBookSearch, setBulkPermissionBookSearch] = useState('');
+  const [bulkPermissionUsersDropdownOpen, setBulkPermissionUsersDropdownOpen] = useState(false);
+  const [bulkPermissionBooksDropdownOpen, setBulkPermissionBooksDropdownOpen] = useState(false);
+  const [bulkPermissionMassAction, setBulkPermissionMassAction] = useState<'add' | 'remove'>('add');
+  const [bulkPermissionMassSelectedPermissions, setBulkPermissionMassSelectedPermissions] = useState<Array<'read' | 'draft' | 'write'>>([]);
+  const bulkPermissionUsersDropdownRef = useRef<HTMLDivElement | null>(null);
+  const bulkPermissionBooksDropdownRef = useRef<HTMLDivElement | null>(null);
   const [copyPermissionsModal, setCopyPermissionsModal] = useState<{ sourceUserId: string; sourceUserName: string } | null>(null);
   const [selectedBooksToCopy, setSelectedBooksToCopy] = useState<string[]>([]);
   const [selectedUsersForCopy, setSelectedUsersForCopy] = useState<string[]>([]);
@@ -858,14 +899,20 @@ export function UserPermissions() {
   };
 
   const openEditModal = (user: UserProfile) => {
+    const parsedRoles = parseRolesFromValue(user.role);
     setEditingUser(user.id);
     setEditForm({
       group: user.group,
-      role: user.role,
+      role: parsedRoles.join(', '),
       profileId: user.profileId || '',
       profileName: user.profileName || '',
       resourceProfileIds: user.resourceProfileIds || []
     });
+    setEditSelectedRoles(parsedRoles);
+    setEditRoleSearch('');
+    setEditResourceProfilesSearch('');
+    setIsEditRolesDropdownOpen(false);
+    setIsEditResourceProfilesDropdownOpen(false);
   };
 
   const openCreateUserModal = () => {
@@ -983,6 +1030,36 @@ export function UserPermissions() {
       if (!bulkCreateBooksRef.current) return;
       if (!bulkCreateBooksRef.current.contains(event.target as Node)) {
         setBulkCreateBooksOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (bulkPermissionUsersDropdownRef.current && !bulkPermissionUsersDropdownRef.current.contains(target)) {
+        setBulkPermissionUsersDropdownOpen(false);
+      }
+      if (bulkPermissionBooksDropdownRef.current && !bulkPermissionBooksDropdownRef.current.contains(target)) {
+        setBulkPermissionBooksDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (editRolesDropdownRef.current && !editRolesDropdownRef.current.contains(target)) {
+        setIsEditRolesDropdownOpen(false);
+      }
+      if (editResourceProfilesDropdownRef.current && !editResourceProfilesDropdownRef.current.contains(target)) {
+        setIsEditResourceProfilesDropdownOpen(false);
       }
     };
 
@@ -1338,6 +1415,71 @@ export function UserPermissions() {
       profileName: '',
       resourceProfileIds: []
     });
+    setEditSelectedRoles([]);
+    setEditRoleSearch('');
+    setEditResourceProfilesSearch('');
+    setIsEditRolesDropdownOpen(false);
+    setIsEditResourceProfilesDropdownOpen(false);
+  };
+
+  const setEditRoles = (roles: string[]) => {
+    const normalized = Array.from(new Set(roles.map(role => role.trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+    setEditSelectedRoles(normalized);
+    setEditForm(prev => ({
+      ...prev,
+      role: normalized.join(', ')
+    }));
+  };
+
+  const toggleEditRole = (role: string) => {
+    if (editSelectedRoles.includes(role)) {
+      setEditRoles(editSelectedRoles.filter(item => item !== role));
+      return;
+    }
+    setEditRoles([...editSelectedRoles, role]);
+  };
+
+  const toggleSelectAllFilteredEditRoles = () => {
+    if (filteredEditRoleOptions.length === 0) return;
+    if (allFilteredEditRolesSelected) {
+      setEditRoles(editSelectedRoles.filter(role => !filteredEditRoleOptions.includes(role)));
+      return;
+    }
+    setEditRoles([...editSelectedRoles, ...filteredEditRoleOptions]);
+  };
+
+  const toggleSelectAllFilteredEditResourceProfiles = () => {
+    if (filteredEditResourceProfiles.length === 0) return;
+    if (allFilteredEditResourceProfilesSelected) {
+      setEditForm(prev => ({
+        ...prev,
+        resourceProfileIds: prev.resourceProfileIds.filter(id => !filteredEditResourceProfiles.some(profile => profile.id === id))
+      }));
+      return;
+    }
+    setEditForm(prev => ({
+      ...prev,
+      resourceProfileIds: Array.from(new Set([
+        ...prev.resourceProfileIds,
+        ...filteredEditResourceProfiles.map(profile => profile.id)
+      ]))
+    }));
+  };
+
+  const createEditCargo = () => {
+    const newCargo = window.prompt('Ingrese el nombre del nuevo cargo');
+    if (!newCargo) return;
+    const normalized = newCargo.trim();
+    if (!normalized) return;
+
+    const existsInCatalog = editRoleOptions.some(role => role.toLowerCase() === normalized.toLowerCase());
+    if (!existsInCatalog) {
+      setEditCustomRoles(prev => [...prev, normalized]);
+    }
+    if (!editSelectedRoles.some(role => role.toLowerCase() === normalized.toLowerCase())) {
+      setEditRoles([...editSelectedRoles, normalized]);
+    }
   };
 
   const toggleEditResourceProfile = (resourceProfileId: string) => {
@@ -1351,6 +1493,7 @@ export function UserPermissions() {
 
   const saveUserChanges = () => {
     if (!editingUser) return;
+    const selectedRolesValue = editSelectedRoles.join(', ');
 
     const selectedProfile = profilesCatalog.find(profile => profile.id === editForm.profileId);
     const bookNameById = new Map(booksCatalog.map(book => [book.id, book.name]));
@@ -1362,7 +1505,7 @@ export function UserPermissions() {
         ? {
             ...user,
             group: editForm.group,
-            role: editForm.role,
+            role: selectedRolesValue,
             profileId: editForm.profileId,
             profileName: editForm.profileName,
             resourceProfileIds: editForm.resourceProfileIds,
@@ -1372,7 +1515,7 @@ export function UserPermissions() {
                   profileId: editForm.profileId,
                   profileName: editForm.profileName,
                   group: editForm.group,
-                  role: editForm.role
+                  role: selectedRolesValue
                 }),
             bookPermissions: selectedProfile
               ? selectedProfile.bookPermissions.map(book => ({
@@ -1678,6 +1821,14 @@ export function UserPermissions() {
 
       sourceBookById.forEach((sourcePermissions, bookId) => {
         const targetBook = targetUser.bookPermissions.find(book => book.bookId === bookId);
+        const referenceBook: BookPermission = targetBook || {
+          bookId,
+          bookName: booksCatalog.find(book => book.id === bookId)?.name || `Libro ${bookId}`,
+          permissions: { read: false, draft: false, write: false, acknowledge: false },
+          isCustom: true,
+          disabled: false
+        };
+        if (hasProfileAssignedPermissionsForBook(targetUser, referenceBook)) return;
         const targetPermissions = targetBook
           ? targetBook.permissions
           : { read: false, draft: false, write: false, acknowledge: false };
@@ -1730,10 +1881,19 @@ export function UserPermissions() {
 
       sourceBooksToCopy.forEach((sourceBook, bookId) => {
         const existingIndex = nextBookPermissions.findIndex(book => book.bookId === bookId);
+        const existingBook = existingIndex >= 0 ? nextBookPermissions[existingIndex] : undefined;
+        const referenceBook: BookPermission = existingBook || {
+          bookId,
+          bookName: sourceBook.bookName,
+          permissions: { read: false, draft: false, write: false, acknowledge: false },
+          isCustom: true,
+          disabled: false
+        };
+        if (hasProfileAssignedPermissionsForBook(user, referenceBook)) return;
+
         if (existingIndex >= 0) {
-          const existingBook = nextBookPermissions[existingIndex];
           nextBookPermissions[existingIndex] = {
-            ...existingBook,
+            ...existingBook!,
             permissions: sanitizePermissionsForBook(bookId, sourceBook.bookName, sourceBook.permissions),
             isCustom: true
           };
@@ -1840,6 +2000,11 @@ export function UserPermissions() {
     return normalizePermissionsByHierarchy(base);
   };
 
+  const hasProfileAssignedPermissionsForBook = (user: UserProfile, book: BookPermission) => {
+    const base = getBasePermissionsForBook(user, book);
+    return !!(base.read || base.draft || base.write || base.acknowledge);
+  };
+
   const getNextPermissionsForPermissionState = (
     user: UserProfile,
     book: BookPermission,
@@ -1888,6 +2053,7 @@ export function UserPermissions() {
     permissionType: keyof PermissionSet
   ) => {
     if (user.disabled || book.disabled) return false;
+    if (hasProfileAssignedPermissionsForBook(user, book)) return false;
     if (permissionType === 'write' && isLibroObraMaestro(book.bookId, book.bookName)) return false;
     const current = normalizePermissionsByHierarchy(book.permissions);
     const next = getNextPermissionsForPermissionState(user, book, permissionType, !current[permissionType]);
@@ -1990,6 +2156,232 @@ export function UserPermissions() {
     const user = users.find(u => u.id === userId);
     if (!user) return false;
     return user.bookPermissions.some(book => canEditBookPermissions(user, book));
+  };
+
+  const avatarPalette = ['#9333ea', '#2563eb', '#059669', '#ea580c', '#ec4899', '#0d9488'];
+  const hierarchyPermissionLabels: Record<HierarchyPermission, string> = {
+    read: 'Lectura',
+    draft: 'Asistente',
+    write: 'Escritura'
+  };
+  const hierarchyOrder: HierarchyPermission[] = ['read', 'draft', 'write'];
+
+  const getHierarchyLevelByPermission = (permission: HierarchyPermission) => {
+    if (permission === 'write') return 2;
+    if (permission === 'draft') return 1;
+    return 0;
+  };
+
+  const getHighestHierarchyPermissionLabel = (permissions: PermissionSet) => {
+    const normalized = normalizePermissionsByHierarchy(permissions);
+    if (normalized.write) return hierarchyPermissionLabels.write;
+    if (normalized.draft) return hierarchyPermissionLabels.draft;
+    if (normalized.read) return hierarchyPermissionLabels.read;
+    return '';
+  };
+
+  const ensureDraftBookForBulkEditor = (user: UserProfile, bookId: string) => {
+    const existing = user.bookPermissions.find(book => book.bookId === bookId);
+    if (existing) return existing;
+    const catalogBook = booksCatalog.find(book => book.id === bookId);
+    return {
+      bookId,
+      bookName: catalogBook?.name || `Libro ${bookId}`,
+      permissions: { read: false, draft: false, write: false, acknowledge: false },
+      isCustom: true,
+      disabled: false
+    } as BookPermission;
+  };
+
+  const canAddHierarchyPermission = (
+    currentPermissions: PermissionSet,
+    basePermissions: PermissionSet,
+    permission: HierarchyPermission
+  ) => {
+    const hasProfilePermissions = !!(basePermissions.read || basePermissions.draft || basePermissions.write || basePermissions.acknowledge);
+    if (hasProfilePermissions) return false;
+    const currentLevel = getPermissionHierarchyLevel(normalizePermissionsByHierarchy(currentPermissions));
+    const baseLevel = getPermissionHierarchyLevel(normalizePermissionsByHierarchy(basePermissions));
+    const targetLevel = getHierarchyLevelByPermission(permission);
+    if (targetLevel <= baseLevel) return false;
+    if (targetLevel <= currentLevel) return false;
+    return true;
+  };
+
+  const canRemoveHierarchyPermission = (
+    currentPermissions: PermissionSet,
+    basePermissions: PermissionSet,
+    permission: HierarchyPermission
+  ) => {
+    const hasProfilePermissions = !!(basePermissions.read || basePermissions.draft || basePermissions.write || basePermissions.acknowledge);
+    if (hasProfilePermissions) return false;
+    const currentLevel = getPermissionHierarchyLevel(normalizePermissionsByHierarchy(currentPermissions));
+    const baseLevel = getPermissionHierarchyLevel(normalizePermissionsByHierarchy(basePermissions));
+    const targetLevel = getHierarchyLevelByPermission(permission);
+    if (targetLevel < baseLevel) return false;
+    if (targetLevel > currentLevel) return false;
+    return true;
+  };
+
+  const applyAddHierarchyPermission = (
+    currentPermissions: PermissionSet,
+    basePermissions: PermissionSet,
+    permission: HierarchyPermission,
+    book: BookPermission
+  ) => {
+    const current = normalizePermissionsByHierarchy(currentPermissions);
+    const base = normalizePermissionsByHierarchy(basePermissions);
+    if (!canAddHierarchyPermission(current, base, permission)) return current;
+    const currentLevel = getPermissionHierarchyLevel(current);
+    const nextLevel = Math.max(currentLevel, getHierarchyLevelByPermission(permission));
+    const adjustedLevel = isLibroObraMaestro(book.bookId, book.bookName) ? Math.min(nextLevel, 1) : nextLevel;
+    const finalLevel = Math.max(adjustedLevel, getPermissionHierarchyLevel(base));
+    return buildPermissionsFromHierarchyLevel(finalLevel, current.acknowledge || base.acknowledge);
+  };
+
+  const applyRemoveHierarchyPermission = (
+    currentPermissions: PermissionSet,
+    basePermissions: PermissionSet,
+    permission: HierarchyPermission
+  ) => {
+    const current = normalizePermissionsByHierarchy(currentPermissions);
+    const base = normalizePermissionsByHierarchy(basePermissions);
+    if (!canRemoveHierarchyPermission(current, base, permission)) return current;
+
+    const currentLevel = getPermissionHierarchyLevel(current);
+    const baseLevel = getPermissionHierarchyLevel(base);
+    let nextLevel = currentLevel;
+    if (permission === 'write') nextLevel = 1;
+    if (permission === 'draft') nextLevel = 0;
+    if (permission === 'read') nextLevel = -1;
+    nextLevel = Math.max(nextLevel, baseLevel);
+    return buildPermissionsFromHierarchyLevel(nextLevel, current.acknowledge || base.acknowledge);
+  };
+
+  const openBulkPermissionEditorModal = () => {
+    setBulkPermissionDraftUsers(JSON.parse(JSON.stringify(users)) as UserProfile[]);
+    setBulkPermissionSelectedUserIds([]);
+    setBulkPermissionSelectedBookIds([]);
+    setBulkPermissionUserSearch('');
+    setBulkPermissionBookSearch('');
+    setBulkPermissionMassAction('add');
+    setBulkPermissionMassSelectedPermissions([]);
+    setBulkPermissionUsersDropdownOpen(false);
+    setBulkPermissionBooksDropdownOpen(false);
+    setIsBulkPermissionEditorOpen(true);
+  };
+
+  const closeBulkPermissionEditorModal = () => {
+    setIsBulkPermissionEditorOpen(false);
+    setBulkPermissionDraftUsers(null);
+    setBulkPermissionSelectedUserIds([]);
+    setBulkPermissionSelectedBookIds([]);
+    setBulkPermissionMassSelectedPermissions([]);
+  };
+
+  const applyBulkPermissionEditorChanges = () => {
+    if (!bulkPermissionDraftUsers) return;
+    setUsers(bulkPermissionDraftUsers);
+    closeBulkPermissionEditorModal();
+  };
+
+  const toggleBulkPermissionUserSelection = (userId: string) => {
+    setBulkPermissionSelectedUserIds(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const toggleBulkPermissionBookSelection = (bookId: string) => {
+    setBulkPermissionSelectedBookIds(prev =>
+      prev.includes(bookId) ? prev.filter(id => id !== bookId) : [...prev, bookId]
+    );
+  };
+
+  const toggleBulkPermissionMassPermission = (permission: HierarchyPermission) => {
+    setBulkPermissionMassSelectedPermissions(prev =>
+      prev.includes(permission)
+        ? prev.filter(item => item !== permission)
+        : [...prev, permission]
+    );
+  };
+
+  const applyMassPermissionsToSelection = () => {
+    if (!bulkPermissionDraftUsers || bulkPermissionSelectedUserIds.length === 0 || bulkPermissionSelectedBookIds.length === 0) return;
+    if (bulkPermissionMassSelectedPermissions.length === 0) return;
+
+    const targetUsers = new Set(bulkPermissionSelectedUserIds);
+    const targetBooks = new Set(bulkPermissionSelectedBookIds);
+
+    setBulkPermissionDraftUsers(prev => {
+      if (!prev) return prev;
+      return prev.map(user => {
+        if (!targetUsers.has(user.id)) return user;
+        const nextBooks = [...user.bookPermissions];
+
+        targetBooks.forEach(bookId => {
+          const existingIndex = nextBooks.findIndex(book => book.bookId === bookId);
+          const draftBook = existingIndex >= 0
+            ? nextBooks[existingIndex]
+            : ensureDraftBookForBulkEditor(user, bookId);
+
+          const basePermissions = getBasePermissionsForBook(user, draftBook);
+          let nextPermissions = normalizePermissionsByHierarchy(draftBook.permissions);
+
+          bulkPermissionMassSelectedPermissions.forEach(permission => {
+            nextPermissions = bulkPermissionMassAction === 'add'
+              ? applyAddHierarchyPermission(nextPermissions, basePermissions, permission, draftBook)
+              : applyRemoveHierarchyPermission(nextPermissions, basePermissions, permission);
+          });
+
+          const updatedBook: BookPermission = {
+            ...draftBook,
+            permissions: nextPermissions,
+            isCustom: true
+          };
+
+          if (existingIndex >= 0) {
+            nextBooks[existingIndex] = updatedBook;
+          } else {
+            nextBooks.push(updatedBook);
+          }
+        });
+
+        return { ...user, bookPermissions: nextBooks };
+      });
+    });
+  };
+
+  const updateSingleBulkEditorPermission = (userId: string, bookId: string, permission: HierarchyPermission, checked: boolean) => {
+    setBulkPermissionDraftUsers(prev => {
+      if (!prev) return prev;
+      return prev.map(user => {
+        if (user.id !== userId) return user;
+        const nextBooks = [...user.bookPermissions];
+        const existingIndex = nextBooks.findIndex(book => book.bookId === bookId);
+        const draftBook = existingIndex >= 0
+          ? nextBooks[existingIndex]
+          : ensureDraftBookForBulkEditor(user, bookId);
+
+        const basePermissions = getBasePermissionsForBook(user, draftBook);
+        const nextPermissions = checked
+          ? applyAddHierarchyPermission(draftBook.permissions, basePermissions, permission, draftBook)
+          : applyRemoveHierarchyPermission(draftBook.permissions, basePermissions, permission);
+
+        const updatedBook: BookPermission = {
+          ...draftBook,
+          permissions: nextPermissions,
+          isCustom: true
+        };
+
+        if (existingIndex >= 0) {
+          nextBooks[existingIndex] = updatedBook;
+        } else {
+          nextBooks.push(updatedBook);
+        }
+
+        return { ...user, bookPermissions: nextBooks };
+      });
+    });
   };
 
   const toManagedResourceList = (user: UserProfile) => {
@@ -2198,6 +2590,26 @@ export function UserPermissions() {
   };
 
   const roleOptions = Array.from(new Set(users.map(user => user.role))).sort((a, b) => a.localeCompare(b));
+  const editRoleOptions = Array.from(new Set([
+    ...DEFAULT_CARGO_OPTIONS,
+    ...editCustomRoles,
+    ...users.flatMap(user => parseRolesFromValue(user.role)),
+    ...editSelectedRoles
+  ])).sort((a, b) => a.localeCompare(b));
+  const normalizedEditRoleSearch = editRoleSearch.trim().toLowerCase();
+  const filteredEditRoleOptions = editRoleOptions.filter(role =>
+    role.toLowerCase().includes(normalizedEditRoleSearch)
+  );
+  const allFilteredEditRolesSelected =
+    filteredEditRoleOptions.length > 0 &&
+    filteredEditRoleOptions.every(role => editSelectedRoles.includes(role));
+  const normalizedEditResourceProfilesSearch = editResourceProfilesSearch.trim().toLowerCase();
+  const filteredEditResourceProfiles = resourceProfilesCatalog.filter(profile =>
+    profile.name.toLowerCase().includes(normalizedEditResourceProfilesSearch)
+  );
+  const allFilteredEditResourceProfilesSelected =
+    filteredEditResourceProfiles.length > 0 &&
+    filteredEditResourceProfiles.every(profile => editForm.resourceProfileIds.includes(profile.id));
   const profileOptions = profilesCatalog.map(profile => ({ value: profile.id, label: profile.name }));
   const normalizedQuickCreateRun = quickCreateForm.run.trim().toLowerCase();
   const quickCreateRunExists = normalizedQuickCreateRun.length > 0 &&
@@ -2219,6 +2631,60 @@ export function UserPermissions() {
     { value: 'write', label: 'Escritura' },
     { value: 'acknowledge', label: 'Toma Conoc.' }
   ];
+  const bulkPermissionWorkingUsers = bulkPermissionDraftUsers || users;
+  const bulkPermissionUsersFiltered = bulkPermissionWorkingUsers
+    .filter(user => {
+      const query = bulkPermissionUserSearch.trim().toLowerCase();
+      if (!query) return true;
+      return user.name.toLowerCase().includes(query) ||
+        user.run.toLowerCase().includes(query) ||
+        user.profileName?.toLowerCase().includes(query);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const bulkPermissionBooksFiltered = booksCatalog
+    .filter(book => {
+      const query = bulkPermissionBookSearch.trim().toLowerCase();
+      if (!query) return true;
+      return book.name.toLowerCase().includes(query);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const allFilteredBulkPermissionUsersSelected = bulkPermissionUsersFiltered.length > 0 &&
+    bulkPermissionUsersFiltered.every(user => bulkPermissionSelectedUserIds.includes(user.id));
+  const allFilteredBulkPermissionBooksSelected = bulkPermissionBooksFiltered.length > 0 &&
+    bulkPermissionBooksFiltered.every(book => bulkPermissionSelectedBookIds.includes(book.id));
+
+  const bulkPermissionSelectedUsers = bulkPermissionSelectedUserIds
+    .map(userId => bulkPermissionWorkingUsers.find(user => user.id === userId))
+    .filter((user): user is UserProfile => !!user);
+  const bulkPermissionSelectedBooks = bulkPermissionSelectedBookIds
+    .map(bookId => booksCatalog.find(book => book.id === bookId) || { id: bookId, name: catalogById.get(bookId) || `Libro ${bookId}` })
+    .filter(book => !!book);
+
+  const toggleSelectAllFilteredBulkPermissionUsers = () => {
+    if (allFilteredBulkPermissionUsersSelected) {
+      const filteredIds = new Set(bulkPermissionUsersFiltered.map(user => user.id));
+      setBulkPermissionSelectedUserIds(prev => prev.filter(id => !filteredIds.has(id)));
+      return;
+    }
+    setBulkPermissionSelectedUserIds(prev => Array.from(new Set([...prev, ...bulkPermissionUsersFiltered.map(user => user.id)])));
+  };
+
+  const toggleSelectAllFilteredBulkPermissionBooks = () => {
+    if (allFilteredBulkPermissionBooksSelected) {
+      const filteredIds = new Set(bulkPermissionBooksFiltered.map(book => book.id));
+      setBulkPermissionSelectedBookIds(prev => prev.filter(id => !filteredIds.has(id)));
+      return;
+    }
+    setBulkPermissionSelectedBookIds(prev => Array.from(new Set([...prev, ...bulkPermissionBooksFiltered.map(book => book.id)])));
+  };
+
+  const getUserAvatarInitials = (name: string) => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return 'U';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+  };
+
   const formatPermissionSummary = (permissions: PermissionSet) =>
     `L:${permissions.read ? 'Sí' : 'No'} | A:${permissions.draft ? 'Sí' : 'No'} | E:${permissions.write ? 'Sí' : 'No'} | TC:${permissions.acknowledge ? 'Sí' : 'No'}`;
 
@@ -2457,6 +2923,14 @@ export function UserPermissions() {
               >
                 <UserPlus className="w-4 h-4" />
                 Asignar Usuario
+              </button>
+              <button
+                onClick={openBulkPermissionEditorModal}
+                className="px-4 py-2.5 rounded-lg bg-white text-[#2563eb] border border-[#bfdbfe] hover:bg-[#eff6ff] transition-colors shadow-sm flex items-center gap-2"
+                style={{ fontWeight: 600 }}
+              >
+                <Edit2 className="w-4 h-4" />
+                Editar Permisos
               </button>
               <button
                 onClick={openQuickCreateUserModal}
@@ -3327,22 +3801,29 @@ export function UserPermissions() {
                                   }`}
                                 >
                               {/* Book Name */}
-                              <div className="flex items-center gap-2">
-                                {isBookPermissionException(user, book) && (
-                                  <AlertCircle className="w-4 h-4 text-[#f59e0b]" />
-                                )}
-                                <span style={{ fontWeight: 500, color: '#1f2937' }}>
-                                  {book.bookName}
-                                </span>
-                                {book.disabled && (
-                                  <span className="px-2 py-0.5 bg-[#e5e7eb] text-[#6b7280] rounded text-xs" style={{ fontWeight: 600 }}>
-                                    Deshabilitado
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                  {isBookPermissionException(user, book) && (
+                                    <AlertCircle className="w-4 h-4 text-[#f59e0b]" />
+                                  )}
+                                  <span style={{ fontWeight: 500, color: '#1f2937' }}>
+                                    {book.bookName}
                                   </span>
-                                )}
-                                {user.disabled && (
-                                  <span className="px-2 py-0.5 bg-[#e5e7eb] text-[#6b7280] rounded text-xs" style={{ fontWeight: 600 }}>
-                                    Usuario deshabilitado
-                                  </span>
+                                  {book.disabled && (
+                                    <span className="px-2 py-0.5 bg-[#e5e7eb] text-[#6b7280] rounded text-xs" style={{ fontWeight: 600 }}>
+                                      Deshabilitado
+                                    </span>
+                                  )}
+                                  {user.disabled && (
+                                    <span className="px-2 py-0.5 bg-[#e5e7eb] text-[#6b7280] rounded text-xs" style={{ fontWeight: 600 }}>
+                                      Usuario deshabilitado
+                                    </span>
+                                  )}
+                                </div>
+                                {hasProfileAssignedPermissionsForBook(user, book) && (
+                                  <div className="text-xs text-amber-700" style={{ fontWeight: 600 }}>
+                                    Permisos fijos por perfil: {getHighestHierarchyPermissionLabel(getBasePermissionsForBook(user, book))}
+                                  </div>
                                 )}
                               </div>
 
@@ -3574,6 +4055,362 @@ export function UserPermissions() {
         </div>
         )}
       </div>
+
+      {/* Bulk Permission Editor Modal */}
+      <AnimatePresence>
+        {isBulkPermissionEditorOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50"
+            onClick={closeBulkPermissionEditorModal}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 8 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 8 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#f8fafc] rounded-2xl shadow-2xl w-full max-w-[1280px] h-[90vh] overflow-hidden flex flex-col"
+            >
+              <div className="px-8 py-6 border-b border-slate-200 bg-white">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                    <BookOpen className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg text-slate-900" style={{ fontWeight: 700 }}>
+                      Asignación Masiva de Permisos
+                    </h2>
+                    <p className="text-sm text-slate-600">
+                      Selecciona usuarios y libros para asignar permisos adicionales
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-8 py-6">
+                <div className="grid grid-cols-2 gap-6 mb-6">
+                  <div className="bg-white border border-slate-200 rounded-xl p-4">
+                    <div className="text-sm text-slate-700 mb-2" style={{ fontWeight: 700 }}>
+                      Usuarios ({bulkPermissionSelectedUserIds.length})
+                    </div>
+                    <div ref={bulkPermissionUsersDropdownRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setBulkPermissionUsersDropdownOpen(prev => !prev)}
+                        className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-left text-sm text-slate-800 flex items-center justify-between"
+                      >
+                        <span>{bulkPermissionSelectedUserIds.length === 0 ? 'Seleccionar usuarios...' : `${bulkPermissionSelectedUserIds.length} usuarios seleccionados`}</span>
+                        <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${bulkPermissionUsersDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {bulkPermissionUsersDropdownOpen && (
+                        <div className="absolute top-full mt-2 w-full bg-white border border-slate-200 rounded-lg shadow-xl z-40">
+                          <div className="p-3 border-b border-slate-100">
+                            <input
+                              type="text"
+                              value={bulkPermissionUserSearch}
+                              onChange={(e) => setBulkPermissionUserSearch(e.target.value)}
+                              placeholder="Buscar"
+                              className="w-full px-3 py-2 text-sm rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                          <label className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 text-sm text-slate-700 cursor-pointer hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              checked={allFilteredBulkPermissionUsersSelected}
+                              onChange={toggleSelectAllFilteredBulkPermissionUsers}
+                            />
+                            <span style={{ fontWeight: 600 }}>Seleccionar todos</span>
+                          </label>
+                          <div className="max-h-72 overflow-y-auto">
+                            {bulkPermissionUsersFiltered.map(user => (
+                              <label
+                                key={`bulk-user-${user.id}`}
+                                className="flex items-start justify-between gap-3 px-3 py-3 border-b border-slate-100 last:border-b-0 cursor-pointer hover:bg-slate-50"
+                              >
+                                <div className="flex-1">
+                                  <div className="text-sm text-slate-900" style={{ fontWeight: 600 }}>{user.name}</div>
+                                  <div className="text-xs text-slate-500">RUN: {user.run}</div>
+                                  <div className="text-xs text-slate-500">Cargo: {user.role || '-'}</div>
+                                  {user.profileName && (
+                                    <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">
+                                      {user.profileName}
+                                    </span>
+                                  )}
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  className="mt-1"
+                                  checked={bulkPermissionSelectedUserIds.includes(user.id)}
+                                  onChange={() => toggleBulkPermissionUserSelection(user.id)}
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-xl p-4">
+                    <div className="text-sm text-slate-700 mb-2" style={{ fontWeight: 700 }}>
+                      Libros ({bulkPermissionSelectedBookIds.length})
+                    </div>
+                    <div ref={bulkPermissionBooksDropdownRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setBulkPermissionBooksDropdownOpen(prev => !prev)}
+                        className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-left text-sm text-slate-800 flex items-center justify-between"
+                      >
+                        <span>{bulkPermissionSelectedBookIds.length === 0 ? 'Seleccionar libros...' : `${bulkPermissionSelectedBookIds.length} libros seleccionados`}</span>
+                        <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${bulkPermissionBooksDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {bulkPermissionBooksDropdownOpen && (
+                        <div className="absolute top-full mt-2 w-full bg-white border border-slate-200 rounded-lg shadow-xl z-40">
+                          <div className="p-3 border-b border-slate-100">
+                            <input
+                              type="text"
+                              value={bulkPermissionBookSearch}
+                              onChange={(e) => setBulkPermissionBookSearch(e.target.value)}
+                              placeholder="Buscar"
+                              className="w-full px-3 py-2 text-sm rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                          <label className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 text-sm text-slate-700 cursor-pointer hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              checked={allFilteredBulkPermissionBooksSelected}
+                              onChange={toggleSelectAllFilteredBulkPermissionBooks}
+                            />
+                            <span style={{ fontWeight: 600 }}>Seleccionar todos</span>
+                          </label>
+                          <div className="max-h-72 overflow-y-auto">
+                            {bulkPermissionBooksFiltered.map(book => (
+                              <label
+                                key={`bulk-book-${book.id}`}
+                                className="flex items-center justify-between gap-3 px-3 py-3 border-b border-slate-100 last:border-b-0 cursor-pointer hover:bg-slate-50"
+                              >
+                                <span className="text-sm text-slate-900">{book.name}</span>
+                                <input
+                                  type="checkbox"
+                                  checked={bulkPermissionSelectedBookIds.includes(book.id)}
+                                  onChange={() => toggleBulkPermissionBookSelection(book.id)}
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {bulkPermissionSelectedUserIds.length > 0 && bulkPermissionSelectedBookIds.length > 0 ? (
+                  <div className="space-y-6">
+                    <div className="bg-white border border-slate-200 rounded-xl p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <h3 className="text-sm text-slate-900" style={{ fontWeight: 700 }}>
+                            Configurar Permisos Adicionales
+                          </h3>
+                          <p className="text-xs text-slate-600 mt-1">
+                            Los permisos heredados del perfil se muestran en gris. Solo puedes agregar permisos adicionales.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={bulkPermissionMassAction}
+                            onChange={(e) => setBulkPermissionMassAction(e.target.value as 'add' | 'remove')}
+                            className="px-3 py-2 rounded-md border border-slate-300 text-sm"
+                          >
+                            <option value="add">Agregar</option>
+                            <option value="remove">Eliminar</option>
+                          </select>
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-slate-300 bg-white">
+                            {hierarchyOrder.map(permission => (
+                              <label key={`mass-${permission}`} className="flex items-center gap-1 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={bulkPermissionMassSelectedPermissions.includes(permission)}
+                                  onChange={() => toggleBulkPermissionMassPermission(permission)}
+                                />
+                                {hierarchyPermissionLabels[permission]}
+                              </label>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={applyMassPermissionsToSelection}
+                            disabled={bulkPermissionMassSelectedPermissions.length === 0}
+                            className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            style={{ fontWeight: 600 }}
+                          >
+                            Aplicar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {bulkPermissionSelectedBooks.map((book, bookIndex) => (
+                      <motion.div
+                        key={`bulk-editor-book-${book.id}`}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: bookIndex * 0.03 }}
+                        className="bg-white border border-slate-200 rounded-xl overflow-hidden"
+                      >
+                        <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 text-slate-900" style={{ fontWeight: 700 }}>
+                          {book.name}
+                        </div>
+                        <div>
+                          {bulkPermissionSelectedUsers.map((user, userIndex) => {
+                            const color = avatarPalette[userIndex % avatarPalette.length];
+                            const bookPermission = ensureDraftBookForBulkEditor(user, book.id);
+                            const basePermissions = getBasePermissionsForBook(user, bookPermission);
+                            const currentPermissions = normalizePermissionsByHierarchy(bookPermission.permissions);
+                            const baseLabel = getHighestHierarchyPermissionLabel(basePermissions);
+                            const isBookDisabled = !!user.disabled || !!bookPermission.disabled;
+
+                            return (
+                              <div
+                                key={`bulk-row-${book.id}-${user.id}`}
+                                className="grid grid-cols-[1.1fr_1fr] gap-4 px-5 py-4 border-b border-slate-100 last:border-b-0 items-start"
+                              >
+                                <div>
+                                  <div className="flex items-start gap-3">
+                                    <div
+                                      className="w-12 h-12 rounded-xl text-white flex items-center justify-center"
+                                      style={{ backgroundColor: color, fontWeight: 700 }}
+                                    >
+                                      {getUserAvatarInitials(user.name)}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="text-sm text-slate-900" style={{ fontWeight: 700 }}>{user.name}</div>
+                                      <div className="text-xs text-slate-500">RUN: {user.run || '12345678A'}</div>
+                                      <div className="text-xs text-slate-500">Cargo: {user.role || '-'}</div>
+                                      <div className="flex items-center gap-2 mt-1">
+                                        {user.profileName && (
+                                          <span className="px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">{user.profileName}</span>
+                                        )}
+                                        {baseLabel && (
+                                          <span className="inline-flex items-center gap-1 text-xs text-slate-600">
+                                            <span>🔒</span>
+                                            <span>{baseLabel} desde perfil</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                      {baseLabel && (
+                                        <div className="mt-2 text-xs text-amber-700">
+                                          ⚠️ Permisos fijos por perfil: {baseLabel}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                                  {(() => {
+                                    const permissionStates = hierarchyOrder.map(permission => {
+                                      const checked = currentPermissions[permission];
+                                      const includedByProfile = normalizePermissionsByHierarchy(basePermissions)[permission];
+                                      const disabledByProfile = checked && includedByProfile;
+                                      const disabledByRule = isBookDisabled ||
+                                        (permission === 'write' && isLibroObraMaestro(bookPermission.bookId, bookPermission.bookName)) ||
+                                        (checked
+                                          ? (!canRemoveHierarchyPermission(currentPermissions, basePermissions, permission) || disabledByProfile)
+                                          : !canAddHierarchyPermission(currentPermissions, basePermissions, permission));
+                                      return {
+                                        permission,
+                                        checked,
+                                        disabledByRule
+                                      };
+                                    });
+                                    return (
+                                      <>
+                                        <div className="grid grid-cols-3 gap-2 pb-2 border-b border-slate-200">
+                                          {permissionStates.map(state => (
+                                            <div
+                                              key={`bulk-row-head-${book.id}-${user.id}-${state.permission}`}
+                                              className="flex items-center justify-center gap-1.5 text-slate-800 text-xs"
+                                              style={{ fontWeight: 700 }}
+                                            >
+                                              <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
+                                              <span className={state.disabledByRule ? 'text-slate-400' : 'text-slate-800'}>
+                                                {hierarchyPermissionLabels[state.permission]}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-2 pt-2.5">
+                                          {permissionStates.map(state => (
+                                            <div
+                                              key={`bulk-row-cell-${book.id}-${user.id}-${state.permission}`}
+                                              className="flex items-center justify-center"
+                                            >
+                                              <button
+                                                type="button"
+                                                disabled={state.disabledByRule}
+                                                onClick={() => updateSingleBulkEditorPermission(user.id, book.id, state.permission, !state.checked)}
+                                                className={`w-10 h-10 rounded-lg flex items-center justify-center border transition-colors ${
+                                                  state.checked
+                                                    ? 'bg-[#dcfce7] border-[#bbf7d0] text-[#74c69d]'
+                                                    : 'bg-white border-[#d1d5db] text-[#9ca3af]'
+                                                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                                              >
+                                                {state.checked ? (
+                                                  <Check className="w-6 h-6" strokeWidth={3} />
+                                                ) : (
+                                                  <Square className="w-4 h-4 text-transparent" />
+                                                )}
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-xl px-6 py-14 text-center">
+                    <BookOpen className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                    <p className="text-slate-600">Selecciona al menos un usuario y un libro para comenzar</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-slate-200 bg-white px-8 py-4 sticky bottom-0">
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={closeBulkPermissionEditorModal}
+                    className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                    style={{ fontWeight: 600 }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applyBulkPermissionEditorChanges}
+                    className="px-5 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                    style={{ fontWeight: 600 }}
+                  >
+                    Guardar Permisos
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Quick Create User Modal */}
       <AnimatePresence>
@@ -4353,18 +5190,74 @@ export function UserPermissions() {
                   </select>
                 </div>
 
-                {/* Cargo Input */}
+                {/* Cargo Selector */}
                 <div>
-                  <label className="block text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
-                    Cargo
-                  </label>
-                  <input
-                    type="text"
-                    value={editForm.role}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, role: e.target.value }))}
-                    placeholder="ej. Inspector Técnico, Jefe de Proyecto..."
-                    className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
-                  />
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                      Cargos ({editSelectedRoles.length})
+                    </label>
+                    <button
+                      type="button"
+                      onClick={createEditCargo}
+                      className="text-xs text-[#2563eb] hover:text-[#1d4ed8]"
+                      style={{ fontWeight: 600 }}
+                    >
+                      + Crear cargo
+                    </button>
+                  </div>
+                  <div ref={editRolesDropdownRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditRolesDropdownOpen(prev => !prev)}
+                      className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] flex items-center justify-between"
+                    >
+                      <span className="text-sm" style={{ fontWeight: 500 }}>
+                        {editSelectedRoles.length === 0
+                          ? 'Seleccionar cargos...'
+                          : `${editSelectedRoles.length} cargos seleccionados`}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-[#6b7280] transition-transform ${isEditRolesDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isEditRolesDropdownOpen && (
+                      <div className="absolute top-full mt-2 w-full bg-white border border-[#e5e7eb] rounded-lg shadow-xl z-50">
+                        <div className="p-3 border-b border-[#eef2f7]">
+                          <input
+                            type="text"
+                            value={editRoleSearch}
+                            onChange={(e) => setEditRoleSearch(e.target.value)}
+                            placeholder="Buscar"
+                            className="w-full px-3 py-2 text-sm border border-[#d1d5db] rounded-md focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+                          />
+                        </div>
+                        <label className="flex items-center gap-2 px-3 py-2 border-b border-[#eef2f7] text-sm text-[#374151] cursor-pointer hover:bg-[#f8fafc]">
+                          <input
+                            type="checkbox"
+                            checked={allFilteredEditRolesSelected}
+                            onChange={toggleSelectAllFilteredEditRoles}
+                          />
+                          <span style={{ fontWeight: 600 }}>Seleccionar todos</span>
+                        </label>
+                        <div className="max-h-56 overflow-y-auto">
+                          {filteredEditRoleOptions.map(role => (
+                            <label
+                              key={`edit-role-${role}`}
+                              className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[#f1f5f9] last:border-b-0 cursor-pointer hover:bg-[#f8fafc]"
+                            >
+                              <span className="text-sm text-[#1f2937]">{role}</span>
+                              <input
+                                type="checkbox"
+                                checked={editSelectedRoles.includes(role)}
+                                onChange={() => toggleEditRole(role)}
+                              />
+                            </label>
+                          ))}
+                          {filteredEditRoleOptions.length === 0 && (
+                            <div className="px-3 py-3 text-sm text-[#6b7280]">No se encontraron cargos.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Profile Selector */}
@@ -4407,70 +5300,78 @@ export function UserPermissions() {
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm" style={{ fontWeight: 600, color: '#374151' }}>
-                      Perfiles de Recursos
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditForm(prev => ({
-                            ...prev,
-                            resourceProfileIds: resourceProfilesCatalog.map(profile => profile.id)
-                          }))
-                        }
-                        className="text-xs text-[#2563eb] hover:text-[#1d4ed8]"
-                        style={{ fontWeight: 600 }}
-                      >
-                        Seleccionar todos
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditForm(prev => ({
-                            ...prev,
-                            resourceProfileIds: []
-                          }))
-                        }
-                        className="text-xs text-[#6b7280] hover:text-[#374151]"
-                        style={{ fontWeight: 600 }}
-                      >
-                        Limpiar
-                      </button>
-                    </div>
-                  </div>
+                  <label className="block text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
+                    Perfiles de Recursos ({editForm.resourceProfileIds.length})
+                  </label>
 
                   {resourceProfilesCatalog.length === 0 ? (
                     <div className="px-4 py-3 text-sm text-[#6b7280] bg-[#f8f9fb] border border-[#e5e7eb] rounded-lg">
                       No hay perfiles de recursos disponibles.
                     </div>
                   ) : (
-                    <div className="max-h-44 overflow-y-auto border border-[#d1d5db] rounded-lg bg-white divide-y divide-[#eef2f7]">
-                      {resourceProfilesCatalog.map(profile => {
-                        const checked = editForm.resourceProfileIds.includes(profile.id);
-                        return (
-                          <label
-                            key={profile.id}
-                            className="flex items-start gap-3 px-4 py-3 hover:bg-[#f8fafc] cursor-pointer"
-                          >
+                    <div ref={editResourceProfilesDropdownRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditResourceProfilesDropdownOpen(prev => !prev)}
+                        className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] flex items-center justify-between"
+                      >
+                        <span className="text-sm" style={{ fontWeight: 500 }}>
+                          {editForm.resourceProfileIds.length === 0
+                            ? 'Seleccionar perfiles...'
+                            : `${editForm.resourceProfileIds.length} cargos seleccionados`}
+                        </span>
+                        <ChevronDown className={`w-4 h-4 text-[#6b7280] transition-transform ${isEditResourceProfilesDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {isEditResourceProfilesDropdownOpen && (
+                        <div className="absolute top-full mt-2 w-full bg-white border border-[#e5e7eb] rounded-lg shadow-xl z-50">
+                          <div className="p-3 border-b border-[#eef2f7]">
+                            <input
+                              type="text"
+                              value={editResourceProfilesSearch}
+                              onChange={(e) => setEditResourceProfilesSearch(e.target.value)}
+                              placeholder="Buscar"
+                              className="w-full px-3 py-2 text-sm border border-[#d1d5db] rounded-md focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+                            />
+                          </div>
+                          <label className="flex items-center gap-2 px-3 py-2 border-b border-[#eef2f7] text-sm text-[#374151] cursor-pointer hover:bg-[#f8fafc]">
                             <input
                               type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleEditResourceProfile(profile.id)}
-                              className="mt-0.5 w-4 h-4 rounded border-[#9ca3af] text-[#4f46e5] focus:ring-[#4f46e5]"
+                              checked={allFilteredEditResourceProfilesSelected}
+                              onChange={toggleSelectAllFilteredEditResourceProfiles}
                             />
-                            <div className="flex-1">
-                              <div className="text-sm text-[#1f2937]" style={{ fontWeight: 600 }}>
-                                {profile.name}
-                              </div>
-                              <div className="text-xs text-[#6b7280] mt-0.5">
-                                {resolveResourceIdsForProfile(profile).length} recurso(s)
-                              </div>
-                            </div>
+                            <span style={{ fontWeight: 600 }}>Seleccionar todos</span>
                           </label>
-                        );
-                      })}
+                          <div className="max-h-56 overflow-y-auto">
+                            {filteredEditResourceProfiles.map(profile => {
+                              const checked = editForm.resourceProfileIds.includes(profile.id);
+                              return (
+                                <label
+                                  key={profile.id}
+                                  className="flex items-start justify-between gap-3 px-3 py-2 border-b border-[#f1f5f9] last:border-b-0 cursor-pointer hover:bg-[#f8fafc]"
+                                >
+                                  <div className="flex-1">
+                                    <div className="text-sm text-[#1f2937]" style={{ fontWeight: 600 }}>
+                                      {profile.name}
+                                    </div>
+                                    <div className="text-xs text-[#6b7280] mt-0.5">
+                                      {resolveResourceIdsForProfile(profile).length} recurso(s)
+                                    </div>
+                                  </div>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleEditResourceProfile(profile.id)}
+                                    className="mt-1"
+                                  />
+                                </label>
+                              );
+                            })}
+                            {filteredEditResourceProfiles.length === 0 && (
+                              <div className="px-3 py-3 text-sm text-[#6b7280]">No se encontraron perfiles.</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                   <p className="text-xs text-[#6b7280] mt-2">
@@ -4490,7 +5391,7 @@ export function UserPermissions() {
                 </button>
                 <button
                   onClick={saveUserChanges}
-                  disabled={!editForm.group || !editForm.role}
+                  disabled={!editForm.group || editSelectedRoles.length === 0}
                   className="flex-1 px-4 py-3 bg-[#4f46e5] text-white hover:bg-[#4338ca] rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ fontWeight: 600 }}
                 >
