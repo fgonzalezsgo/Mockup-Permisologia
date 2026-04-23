@@ -726,7 +726,19 @@ export function UserPermissions() {
   const bulkPermissionBooksDropdownRef = useRef<HTMLDivElement | null>(null);
   const [copyPermissionsModal, setCopyPermissionsModal] = useState<{ sourceUserId: string; sourceUserName: string } | null>(null);
   const [selectedBooksToCopy, setSelectedBooksToCopy] = useState<string[]>([]);
+  const [selectedResourcesToCopy, setSelectedResourcesToCopy] = useState<string[]>([]);
   const [selectedUsersForCopy, setSelectedUsersForCopy] = useState<string[]>([]);
+  const [copyBooksSearch, setCopyBooksSearch] = useState('');
+  const [copyResourcesSearch, setCopyResourcesSearch] = useState('');
+  const [copyUsersSearch, setCopyUsersSearch] = useState('');
+  const [isCopyBooksDropdownOpen, setIsCopyBooksDropdownOpen] = useState(false);
+  const [isCopyResourcesDropdownOpen, setIsCopyResourcesDropdownOpen] = useState(false);
+  const [isCopyUsersDropdownOpen, setIsCopyUsersDropdownOpen] = useState(false);
+  const [expandedCopyResourceModules, setExpandedCopyResourceModules] = useState<string[]>([]);
+  const [isCopyPreviewModalOpen, setIsCopyPreviewModalOpen] = useState(false);
+  const copyBooksDropdownRef = useRef<HTMLDivElement | null>(null);
+  const copyResourcesDropdownRef = useRef<HTMLDivElement | null>(null);
+  const copyUsersDropdownRef = useRef<HTMLDivElement | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [confirmModal, setConfirmModal] = useState<{
     type: 'delete-user' | 'disable-user' | 'enable-user' | 'remove-book' | 'disable-book' | 'enable-book';
@@ -1060,6 +1072,24 @@ export function UserPermissions() {
       }
       if (editResourceProfilesDropdownRef.current && !editResourceProfilesDropdownRef.current.contains(target)) {
         setIsEditResourceProfilesDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (copyBooksDropdownRef.current && !copyBooksDropdownRef.current.contains(target)) {
+        setIsCopyBooksDropdownOpen(false);
+      }
+      if (copyResourcesDropdownRef.current && !copyResourcesDropdownRef.current.contains(target)) {
+        setIsCopyResourcesDropdownOpen(false);
+      }
+      if (copyUsersDropdownRef.current && !copyUsersDropdownRef.current.contains(target)) {
+        setIsCopyUsersDropdownOpen(false);
       }
     };
 
@@ -1772,15 +1802,36 @@ export function UserPermissions() {
   };
 
   const openCopyPermissionsModal = (user: UserProfile) => {
+    const sourceBooks = user.bookPermissions.map(book => book.bookId);
+    const sourceResources = toManagedResourceList(user).map(resource => resource.resourceId);
+    const sourceModuleNames = Array.from(new Set(toManagedResourceList(user).map(resource => resource.moduleName))).sort((a, b) => a.localeCompare(b));
     setCopyPermissionsModal({ sourceUserId: user.id, sourceUserName: user.name });
-    setSelectedBooksToCopy([]);
+    setSelectedBooksToCopy(sourceBooks);
+    setSelectedResourcesToCopy(sourceResources);
     setSelectedUsersForCopy([]);
+    setCopyBooksSearch('');
+    setCopyResourcesSearch('');
+    setCopyUsersSearch('');
+    setExpandedCopyResourceModules(sourceModuleNames);
+    setIsCopyBooksDropdownOpen(false);
+    setIsCopyResourcesDropdownOpen(false);
+    setIsCopyUsersDropdownOpen(false);
+    setIsCopyPreviewModalOpen(false);
   };
 
   const closeCopyPermissionsModal = () => {
     setCopyPermissionsModal(null);
     setSelectedBooksToCopy([]);
+    setSelectedResourcesToCopy([]);
     setSelectedUsersForCopy([]);
+    setCopyBooksSearch('');
+    setCopyResourcesSearch('');
+    setCopyUsersSearch('');
+    setExpandedCopyResourceModules([]);
+    setIsCopyBooksDropdownOpen(false);
+    setIsCopyResourcesDropdownOpen(false);
+    setIsCopyUsersDropdownOpen(false);
+    setIsCopyPreviewModalOpen(false);
   };
 
   const toggleBookSelectionForCopy = (bookId: string) => {
@@ -1797,6 +1848,49 @@ export function UserPermissions() {
         ? prev.filter(id => id !== userId)
         : [...prev, userId]
     );
+  };
+
+  const toggleResourceSelectionForCopy = (resourceId: string) => {
+    setSelectedResourcesToCopy(prev =>
+      prev.includes(resourceId)
+        ? prev.filter(id => id !== resourceId)
+        : [...prev, resourceId]
+    );
+  };
+
+  const toggleCopyResourceModule = (moduleName: string) => {
+    setExpandedCopyResourceModules(prev =>
+      prev.includes(moduleName)
+        ? prev.filter(name => name !== moduleName)
+        : [...prev, moduleName]
+    );
+  };
+
+  const toggleSelectAllFilteredCopyBooks = () => {
+    if (filteredCopyBooks.length === 0) return;
+    if (allFilteredCopyBooksSelected) {
+      setSelectedBooksToCopy(prev => prev.filter(id => !filteredCopyBooks.some(book => book.bookId === id)));
+      return;
+    }
+    setSelectedBooksToCopy(prev => Array.from(new Set([...prev, ...filteredCopyBooks.map(book => book.bookId)])));
+  };
+
+  const toggleSelectAllFilteredCopyResources = () => {
+    if (filteredCopyResources.length === 0) return;
+    if (allFilteredCopyResourcesSelected) {
+      setSelectedResourcesToCopy(prev => prev.filter(id => !filteredCopyResources.some(resource => resource.resourceId === id)));
+      return;
+    }
+    setSelectedResourcesToCopy(prev => Array.from(new Set([...prev, ...filteredCopyResources.map(resource => resource.resourceId)])));
+  };
+
+  const toggleSelectAllFilteredCopyUsers = () => {
+    if (filteredCopyUsers.length === 0) return;
+    if (allFilteredCopyUsersSelected) {
+      setSelectedUsersForCopy(prev => prev.filter(id => !filteredCopyUsers.some(user => user.id === id)));
+      return;
+    }
+    setSelectedUsersForCopy(prev => Array.from(new Set([...prev, ...filteredCopyUsers.map(user => user.id)])));
   };
 
   const calculateCopyPermissionChanges = () => {
@@ -1838,13 +1932,126 @@ export function UserPermissions() {
         totalChanges += Number(targetPermissions.write !== sourcePermissions.write);
         totalChanges += Number(targetPermissions.acknowledge !== sourcePermissions.acknowledge);
       });
+
+      if ((targetUser.resourceProfileIds || []).length === 0) {
+        const targetResourceIds = new Set(toManagedResourceList(targetUser).map(resource => resource.resourceId));
+        const sourceResourceIds = new Set(selectedResourcesToCopy);
+        const added = Array.from(sourceResourceIds).filter(id => !targetResourceIds.has(id)).length;
+        const removed = Array.from(targetResourceIds).filter(id => !sourceResourceIds.has(id)).length;
+        totalChanges += added + removed;
+      }
     });
 
     return totalChanges;
   };
 
+  const calculateCopyPermissionChangesByUser = () => {
+    if (!copyPermissionsModal) return [];
+    const sourceUser = users.find(user => user.id === copyPermissionsModal.sourceUserId);
+    if (!sourceUser) return [];
+    const sourceResourceNameById = new Map(copySourceResources.map(resource => [resource.resourceId, resource.resourceName]));
+
+    const sourceBookById = new Map(
+      sourceUser.bookPermissions
+        .filter(book => selectedBooksToCopy.includes(book.bookId))
+        .map(book => [
+          book.bookId,
+          {
+            bookName: book.bookName,
+            permissions: sanitizePermissionsForBook(book.bookId, book.bookName, book.permissions)
+          }
+        ])
+    );
+
+    return selectedUsersForCopy
+      .map(targetUserId => {
+        const targetUser = users.find(user => user.id === targetUserId);
+        if (!targetUser) return null;
+
+        let bookChanges = 0;
+        const bookChangeDetails: Array<{
+          bookId: string;
+          bookName: string;
+          from: PermissionSet;
+          to: PermissionSet;
+          blockedByProfile: boolean;
+        }> = [];
+
+        sourceBookById.forEach((sourceBook, bookId) => {
+          const targetBook = targetUser.bookPermissions.find(book => book.bookId === bookId);
+          const referenceBook: BookPermission = targetBook || {
+            bookId,
+            bookName: booksCatalog.find(book => book.id === bookId)?.name || `Libro ${bookId}`,
+            permissions: { read: false, draft: false, write: false, acknowledge: false },
+            isCustom: true,
+            disabled: false
+          };
+          const blockedByProfile = hasProfileAssignedPermissionsForBook(targetUser, referenceBook);
+          const targetPermissions = targetBook
+            ? sanitizePermissionsForBook(bookId, referenceBook.bookName, targetBook.permissions)
+            : { read: false, draft: false, write: false, acknowledge: false };
+
+          const changedCount =
+            Number(targetPermissions.read !== sourceBook.permissions.read) +
+            Number(targetPermissions.draft !== sourceBook.permissions.draft) +
+            Number(targetPermissions.write !== sourceBook.permissions.write) +
+            Number(targetPermissions.acknowledge !== sourceBook.permissions.acknowledge);
+
+          if (!blockedByProfile) {
+            bookChanges += changedCount;
+          }
+
+          if (changedCount > 0 || blockedByProfile) {
+            bookChangeDetails.push({
+              bookId,
+              bookName: sourceBook.bookName,
+              from: targetPermissions,
+              to: sourceBook.permissions,
+              blockedByProfile
+            });
+          }
+        });
+
+        const targetResourceIds = new Set(toManagedResourceList(targetUser).map(resource => resource.resourceId));
+        const sourceResourceIds = new Set(selectedResourcesToCopy);
+        const resourcesLockedByProfile = (targetUser.resourceProfileIds || []).length > 0;
+        const resourcesToAdd = resourcesLockedByProfile
+          ? []
+          : Array.from(sourceResourceIds)
+            .filter(id => !targetResourceIds.has(id))
+            .map(id => sourceResourceNameById.get(id) || id);
+        const resourcesToRemove = resourcesLockedByProfile
+          ? []
+          : Array.from(targetResourceIds)
+            .filter(id => !sourceResourceIds.has(id))
+            .map(id => RESOURCE_CATALOG.find(resource => resource.resourceId === id)?.resourceName || id);
+        const resourceChanges = resourcesToAdd.length + resourcesToRemove.length;
+
+        return {
+          userId: targetUser.id,
+          userName: targetUser.name,
+          userRun: targetUser.run,
+          avatar: targetUser.avatar,
+          avatarColor: targetUser.avatarColor,
+          bookChanges,
+          bookChangeDetails,
+          resourceChanges,
+          resourcesToAdd,
+          resourcesToRemove,
+          resourcesLockedByProfile,
+          totalChanges: bookChanges + resourceChanges
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => !!item && (item.totalChanges > 0 || item.bookChangeDetails.some(detail => detail.blockedByProfile)));
+  };
+
+  const openCopyPermissionsPreview = () => {
+    if ((selectedBooksToCopy.length === 0 && selectedResourcesToCopy.length === 0) || selectedUsersForCopy.length === 0) return;
+    setIsCopyPreviewModalOpen(true);
+  };
+
   const applyCopiedPermissions = () => {
-    if (!copyPermissionsModal || selectedBooksToCopy.length === 0 || selectedUsersForCopy.length === 0) return;
+    if (!copyPermissionsModal || (selectedBooksToCopy.length === 0 && selectedResourcesToCopy.length === 0) || selectedUsersForCopy.length === 0) return;
 
     const sourceUser = users.find(user => user.id === copyPermissionsModal.sourceUserId);
     if (!sourceUser) return;
@@ -1860,18 +2067,6 @@ export function UserPermissions() {
           }
         ])
     );
-
-    const changesCount = calculateCopyPermissionChanges();
-    if (changesCount === 0) {
-      window.alert('No hay permisos para modificar con la selección actual.');
-      return;
-    }
-
-    const shouldContinue = window.confirm(
-      `Se modificarán ${changesCount} permiso(s). ¿Desea continuar?`
-    );
-
-    if (!shouldContinue) return;
 
     const targetUserIds = new Set(selectedUsersForCopy);
     setUsers(prev => prev.map(user => {
@@ -1909,12 +2104,20 @@ export function UserPermissions() {
         });
       });
 
+      const canEditResources = (user.resourceProfileIds || []).length === 0;
+      const nextResources = canEditResources
+        ? RESOURCE_CATALOG.filter(resource => selectedResourcesToCopy.includes(resource.resourceId))
+        : (user.resourcePermissions || []);
+
       return {
         ...user,
-        bookPermissions: nextBookPermissions
+        bookPermissions: nextBookPermissions,
+        resourceProfileIds: canEditResources ? [] : user.resourceProfileIds,
+        resourcePermissions: nextResources
       };
     }));
 
+    setIsCopyPreviewModalOpen(false);
     closeCopyPermissionsModal();
   };
 
@@ -2590,6 +2793,37 @@ export function UserPermissions() {
   };
 
   const roleOptions = Array.from(new Set(users.map(user => user.role))).sort((a, b) => a.localeCompare(b));
+  const copySourceUser = copyPermissionsModal
+    ? users.find(user => user.id === copyPermissionsModal.sourceUserId) || null
+    : null;
+  const copySourceBooks = copySourceUser?.bookPermissions || [];
+  const copySourceResources = copySourceUser ? toManagedResourceList(copySourceUser) : [];
+  const copyTargetUsers = users.filter(user => user.id !== copyPermissionsModal?.sourceUserId);
+  const normalizedCopyBooksSearch = copyBooksSearch.trim().toLowerCase();
+  const normalizedCopyUsersSearch = copyUsersSearch.trim().toLowerCase();
+  const normalizedCopyResourcesSearch = copyResourcesSearch.trim().toLowerCase();
+  const filteredCopyBooks = copySourceBooks.filter(book =>
+    book.bookName.toLowerCase().includes(normalizedCopyBooksSearch)
+  );
+  const filteredCopyUsers = copyTargetUsers.filter(user =>
+    user.name.toLowerCase().includes(normalizedCopyUsersSearch) ||
+    user.run.toLowerCase().includes(normalizedCopyUsersSearch)
+  );
+  const filteredCopyResources = copySourceResources.filter(resource =>
+    resource.resourceName.toLowerCase().includes(normalizedCopyResourcesSearch) ||
+    resource.moduleName.toLowerCase().includes(normalizedCopyResourcesSearch)
+  );
+  const filteredCopyResourcesByModule = filteredCopyResources.reduce<Record<string, UserResourceAccess[]>>((acc, resource) => {
+    if (!acc[resource.moduleName]) acc[resource.moduleName] = [];
+    acc[resource.moduleName].push(resource);
+    return acc;
+  }, {});
+  const filteredCopyResourceModuleNames = Object.keys(filteredCopyResourcesByModule).sort((a, b) => a.localeCompare(b));
+  const allFilteredCopyBooksSelected = filteredCopyBooks.length > 0 && filteredCopyBooks.every(book => selectedBooksToCopy.includes(book.bookId));
+  const allFilteredCopyUsersSelected = filteredCopyUsers.length > 0 && filteredCopyUsers.every(user => selectedUsersForCopy.includes(user.id));
+  const allFilteredCopyResourcesSelected = filteredCopyResources.length > 0 && filteredCopyResources.every(resource => selectedResourcesToCopy.includes(resource.resourceId));
+  const copyPreviewItems = calculateCopyPermissionChangesByUser();
+  const copyPreviewTotalChanges = copyPreviewItems.reduce((acc, item) => acc + item.totalChanges, 0);
   const editRoleOptions = Array.from(new Set([
     ...DEFAULT_CARGO_OPTIONS,
     ...editCustomRoles,
@@ -2686,7 +2920,7 @@ export function UserPermissions() {
   };
 
   const formatPermissionSummary = (permissions: PermissionSet) =>
-    `L:${permissions.read ? 'Sí' : 'No'} | A:${permissions.draft ? 'Sí' : 'No'} | E:${permissions.write ? 'Sí' : 'No'} | TC:${permissions.acknowledge ? 'Sí' : 'No'}`;
+    `Lectura: ${permissions.read ? 'Sí' : 'No'} | Asistente: ${permissions.draft ? 'Sí' : 'No'} | Escritura: ${permissions.write ? 'Sí' : 'No'} | Toma de conocimiento: ${permissions.acknowledge ? 'Sí' : 'No'}`;
 
   const serializeUser = (user: UserProfile) => JSON.stringify({
     name: user.name,
@@ -5831,7 +6065,7 @@ export function UserPermissions() {
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 10 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-xl shadow-2xl p-8 max-w-4xl w-full max-h-[85vh] overflow-y-auto"
+              className="bg-white rounded-xl shadow-2xl p-8 max-w-5xl w-full max-h-[85vh] overflow-y-auto"
             >
               <div className="flex items-start gap-4 mb-6">
                 <div className="w-12 h-12 rounded-xl bg-[#eff6ff] flex items-center justify-center">
@@ -5842,93 +6076,217 @@ export function UserPermissions() {
                     Copiar Permisos
                   </h3>
                   <p className="text-sm text-[#6b7280]">
-                    Selecciona libros de <span style={{ fontWeight: 600 }}>{copyPermissionsModal.sourceUserName}</span> y los usuarios destino.
+                    Selecciona libros y recursos de <span style={{ fontWeight: 600 }}>{copyPermissionsModal.sourceUserName}</span> y los usuarios destino.
                   </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="grid grid-cols-1 gap-5 mb-6">
                 <div>
-                  <h4 className="text-sm mb-3" style={{ fontWeight: 600, color: '#374151' }}>
-                    Libros a copiar
-                  </h4>
-                  <div className="space-y-2">
-                    {(users.find(user => user.id === copyPermissionsModal.sourceUserId)?.bookPermissions || []).map(book => (
-                      <button
-                        key={book.bookId}
-                        onClick={() => toggleBookSelectionForCopy(book.bookId)}
-                        className={`
-                          w-full p-3 rounded-lg border-2 transition-all text-left
-                          ${selectedBooksToCopy.includes(book.bookId)
-                            ? 'border-[#3b82f6] bg-[#eff6ff]'
-                            : 'border-[#e1e4e8] hover:border-[#d1d5db] bg-white'
-                          }
-                        `}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div style={{ fontWeight: 600, color: '#1f2937' }}>
-                              {book.bookName}
-                            </div>
-                            <div className="text-xs text-[#6b7280] mt-1">
-                              Lectura: {book.permissions.read ? 'Sí' : 'No'} | Asistente: {book.permissions.draft ? 'Sí' : 'No'} | Escritura: {book.permissions.write ? 'Sí' : 'No'} | Toma Conoc.: {book.permissions.acknowledge ? 'Sí' : 'No'}
-                            </div>
-                          </div>
-                          {selectedBooksToCopy.includes(book.bookId) && (
-                            <Check className="w-4 h-4 text-[#2563eb]" strokeWidth={3} />
+                  <div className="text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
+                    Libros ({selectedBooksToCopy.length})
+                  </div>
+                  <div ref={copyBooksDropdownRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsCopyBooksDropdownOpen(prev => !prev)}
+                      className="w-full px-4 py-3 rounded-lg border border-[#d1d5db] bg-white text-left text-sm text-[#1f2937] flex items-center justify-between"
+                    >
+                      <span>{selectedBooksToCopy.length} libros seleccionados</span>
+                      <ChevronDown className={`w-4 h-4 text-[#6b7280] transition-transform ${isCopyBooksDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isCopyBooksDropdownOpen && (
+                      <div className="absolute top-full mt-2 w-full bg-white border border-[#e5e7eb] rounded-lg shadow-xl z-50">
+                        <div className="p-3 border-b border-[#eef2f7]">
+                          <input
+                            type="text"
+                            value={copyBooksSearch}
+                            onChange={(e) => setCopyBooksSearch(e.target.value)}
+                            placeholder="Buscar"
+                            className="w-full px-3 py-2 text-sm rounded-md border border-[#d1d5db] focus:outline-none focus:ring-2 focus:ring-[#3b82f6]"
+                          />
+                        </div>
+                        <label className="flex items-center gap-2 px-3 py-2 border-b border-[#eef2f7] text-sm text-[#374151] cursor-pointer hover:bg-[#f8fafc]">
+                          <input
+                            type="checkbox"
+                            checked={allFilteredCopyBooksSelected}
+                            onChange={toggleSelectAllFilteredCopyBooks}
+                          />
+                          <span style={{ fontWeight: 600 }}>Seleccionar todos</span>
+                        </label>
+                        <div className="max-h-64 overflow-y-auto">
+                          {filteredCopyBooks.map(book => (
+                            <label
+                              key={`copy-book-${book.bookId}`}
+                              className="flex items-start justify-between gap-3 px-3 py-3 border-b border-[#f1f5f9] last:border-b-0 cursor-pointer hover:bg-[#f8fafc]"
+                            >
+                              <div className="flex-1">
+                                <div className="text-sm text-[#1f2937]" style={{ fontWeight: 600 }}>
+                                  {book.bookName}
+                                </div>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={selectedBooksToCopy.includes(book.bookId)}
+                                onChange={() => toggleBookSelectionForCopy(book.bookId)}
+                              />
+                            </label>
+                          ))}
+                          {filteredCopyBooks.length === 0 && (
+                            <div className="px-3 py-3 text-sm text-[#6b7280]">No hay libros disponibles.</div>
                           )}
                         </div>
-                      </button>
-                    ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div>
-                  <h4 className="text-sm mb-3" style={{ fontWeight: 600, color: '#374151' }}>
-                    Usuarios destino
-                  </h4>
-                  <div className="space-y-2">
-                    {users
-                      .filter(user => user.id !== copyPermissionsModal.sourceUserId)
-                      .map(user => (
-                        <button
-                          key={user.id}
-                          onClick={() => toggleUserSelectionForCopy(user.id)}
-                          className={`
-                            w-full p-3 rounded-lg border-2 transition-all text-left
-                            ${selectedUsersForCopy.includes(user.id)
-                              ? 'border-[#3b82f6] bg-[#eff6ff]'
-                              : 'border-[#e1e4e8] hover:border-[#d1d5db] bg-white'
-                            }
-                          `}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs"
-                                style={{ backgroundColor: user.avatarColor, fontWeight: 600 }}
-                              >
-                                {user.avatar}
+                  <div className="text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
+                    Recursos ({selectedResourcesToCopy.length})
+                  </div>
+                  <div ref={copyResourcesDropdownRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsCopyResourcesDropdownOpen(prev => !prev)}
+                      className="w-full px-4 py-3 rounded-lg border border-[#d1d5db] bg-white text-left text-sm text-[#1f2937] flex items-center justify-between"
+                    >
+                      <span>{selectedResourcesToCopy.length} recursos seleccionados</span>
+                      <ChevronDown className={`w-4 h-4 text-[#6b7280] transition-transform ${isCopyResourcesDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isCopyResourcesDropdownOpen && (
+                      <div className="absolute top-full mt-2 w-full bg-white border border-[#e5e7eb] rounded-lg shadow-xl z-50">
+                        <div className="p-3 border-b border-[#eef2f7]">
+                          <input
+                            type="text"
+                            value={copyResourcesSearch}
+                            onChange={(e) => setCopyResourcesSearch(e.target.value)}
+                            placeholder="Buscar"
+                            className="w-full px-3 py-2 text-sm rounded-md border border-[#d1d5db] focus:outline-none focus:ring-2 focus:ring-[#3b82f6]"
+                          />
+                        </div>
+                        <label className="flex items-center gap-2 px-3 py-2 border-b border-[#eef2f7] text-sm text-[#374151] cursor-pointer hover:bg-[#f8fafc]">
+                          <input
+                            type="checkbox"
+                            checked={allFilteredCopyResourcesSelected}
+                            onChange={toggleSelectAllFilteredCopyResources}
+                          />
+                          <span style={{ fontWeight: 600 }}>Seleccionar todos</span>
+                        </label>
+                        <div className="max-h-72 overflow-y-auto">
+                          {filteredCopyResourceModuleNames.map(moduleName => {
+                            const resourcesInModule = filteredCopyResourcesByModule[moduleName] || [];
+                            const isExpanded = expandedCopyResourceModules.includes(moduleName);
+                            return (
+                              <div key={`copy-resource-module-${moduleName}`} className="border-b border-[#f1f5f9] last:border-b-0">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleCopyResourceModule(moduleName)}
+                                  className="w-full px-3 py-3 flex items-center justify-between text-left hover:bg-[#f8fafc]"
+                                >
+                                  <span className="text-sm text-[#1f2937]" style={{ fontWeight: 700 }}>{moduleName}</span>
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-4 h-4 text-[#6b7280]" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4 text-[#6b7280]" />
+                                  )}
+                                </button>
+                                {isExpanded && resourcesInModule.map(resource => (
+                                  <label
+                                    key={`copy-resource-${resource.resourceId}`}
+                                    className="flex items-center justify-between gap-3 px-5 py-2 cursor-pointer hover:bg-[#f8fafc]"
+                                  >
+                                    <span className="text-sm text-[#334155]">{resource.resourceName}</span>
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedResourcesToCopy.includes(resource.resourceId)}
+                                      onChange={() => toggleResourceSelectionForCopy(resource.resourceId)}
+                                    />
+                                  </label>
+                                ))}
                               </div>
-                              <div>
-                                <div style={{ fontWeight: 600, color: '#1f2937' }}>{user.name}</div>
-                                <div className="text-xs text-[#6b7280]">{user.run}</div>
+                            );
+                          })}
+                          {filteredCopyResourceModuleNames.length === 0 && (
+                            <div className="px-3 py-3 text-sm text-[#6b7280]">No hay recursos disponibles.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
+                    Usuarios destino ({selectedUsersForCopy.length})
+                  </div>
+                  <div ref={copyUsersDropdownRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsCopyUsersDropdownOpen(prev => !prev)}
+                      className="w-full px-4 py-3 rounded-lg border border-[#d1d5db] bg-white text-left text-sm text-[#1f2937] flex items-center justify-between"
+                    >
+                      <span>{selectedUsersForCopy.length} usuarios seleccionados</span>
+                      <ChevronDown className={`w-4 h-4 text-[#6b7280] transition-transform ${isCopyUsersDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isCopyUsersDropdownOpen && (
+                      <div className="absolute top-full mt-2 w-full bg-white border border-[#e5e7eb] rounded-lg shadow-xl z-50">
+                        <div className="p-3 border-b border-[#eef2f7]">
+                          <input
+                            type="text"
+                            value={copyUsersSearch}
+                            onChange={(e) => setCopyUsersSearch(e.target.value)}
+                            placeholder="Buscar"
+                            className="w-full px-3 py-2 text-sm rounded-md border border-[#d1d5db] focus:outline-none focus:ring-2 focus:ring-[#3b82f6]"
+                          />
+                        </div>
+                        <label className="flex items-center gap-2 px-3 py-2 border-b border-[#eef2f7] text-sm text-[#374151] cursor-pointer hover:bg-[#f8fafc]">
+                          <input
+                            type="checkbox"
+                            checked={allFilteredCopyUsersSelected}
+                            onChange={toggleSelectAllFilteredCopyUsers}
+                          />
+                          <span style={{ fontWeight: 600 }}>Seleccionar todos</span>
+                        </label>
+                        <div className="max-h-64 overflow-y-auto">
+                          {filteredCopyUsers.map(user => (
+                            <label
+                              key={`copy-user-${user.id}`}
+                              className="flex items-start justify-between gap-3 px-3 py-3 border-b border-[#f1f5f9] last:border-b-0 cursor-pointer hover:bg-[#f8fafc]"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs"
+                                  style={{ backgroundColor: user.avatarColor, fontWeight: 700 }}
+                                >
+                                  {user.avatar || getUserAvatarInitials(user.name)}
+                                </div>
+                                <div>
+                                  <div className="text-sm text-[#1f2937]" style={{ fontWeight: 600 }}>{user.name}</div>
+                                  <div className="text-xs text-[#64748b]">RUN: {user.run}</div>
+                                </div>
                               </div>
-                            </div>
-                            {selectedUsersForCopy.includes(user.id) && (
-                              <Check className="w-4 h-4 text-[#2563eb]" strokeWidth={3} />
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                              <input
+                                type="checkbox"
+                                checked={selectedUsersForCopy.includes(user.id)}
+                                onChange={() => toggleUserSelectionForCopy(user.id)}
+                              />
+                            </label>
+                          ))}
+                          {filteredCopyUsers.length === 0 && (
+                            <div className="px-3 py-3 text-sm text-[#6b7280]">No hay usuarios disponibles.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {(selectedBooksToCopy.length > 0 || selectedUsersForCopy.length > 0) && (
+              {(selectedBooksToCopy.length > 0 || selectedResourcesToCopy.length > 0 || selectedUsersForCopy.length > 0) && (
                 <div className="mb-6 p-4 bg-[#eff6ff] rounded-lg text-sm text-[#1d4ed8]">
                   <span style={{ fontWeight: 600 }}>
-                    Seleccionados: {selectedBooksToCopy.length} libro(s) y {selectedUsersForCopy.length} usuario(s).
+                    Seleccionados: {selectedBooksToCopy.length} libro(s), {selectedResourcesToCopy.length} recurso(s) y {selectedUsersForCopy.length} usuario(s).
                   </span>
                 </div>
               )}
@@ -5942,13 +6300,147 @@ export function UserPermissions() {
                   Cancelar
                 </button>
                 <button
-                  onClick={applyCopiedPermissions}
-                  disabled={selectedBooksToCopy.length === 0 || selectedUsersForCopy.length === 0}
+                  onClick={openCopyPermissionsPreview}
+                  disabled={(selectedBooksToCopy.length === 0 && selectedResourcesToCopy.length === 0) || selectedUsersForCopy.length === 0}
                   className="flex-1 px-4 py-3 bg-[#3b82f6] text-white hover:bg-[#2563eb] rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ fontWeight: 600 }}
                 >
                   Copiar permisos
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isCopyPreviewModalOpen && copyPermissionsModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-[60]"
+            onClick={() => setIsCopyPreviewModalOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 8 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 8 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col"
+            >
+              <div className="px-6 py-5 border-b border-[#e5e7eb]">
+                <h3 className="text-xl text-[#1f2937]" style={{ fontWeight: 700 }}>
+                  Previsualización de cambios
+                </h3>
+                <p className="text-sm text-[#6b7280] mt-1">
+                  Revisa los cambios antes de aplicar la copia de permisos.
+                </p>
+              </div>
+
+              <div className="px-6 py-4 overflow-y-auto space-y-3">
+                {copyPreviewItems.length === 0 ? (
+                  <div className="p-4 rounded-lg bg-[#fff7ed] text-[#9a3412] text-sm">
+                    No hay cambios aplicables con la selección actual.
+                  </div>
+                ) : (
+                  copyPreviewItems.map(item => (
+                    <div key={`copy-preview-${item.userId}`} className="p-4 rounded-lg border border-[#e5e7eb]">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div
+                          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs"
+                          style={{ backgroundColor: item.avatarColor, fontWeight: 700 }}
+                        >
+                          {item.avatar || getUserAvatarInitials(item.userName)}
+                        </div>
+                        <div>
+                          <div className="text-sm text-[#1f2937]" style={{ fontWeight: 700 }}>{item.userName}</div>
+                          <div className="text-xs text-[#64748b]">RUN: {item.userRun}</div>
+                        </div>
+                      </div>
+                      <div className="text-xs text-[#64748b] mb-3">
+                        Total cambios aplicables: <span style={{ fontWeight: 700, color: '#0f172a' }}>{item.totalChanges}</span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-sm text-[#0f172a]" style={{ fontWeight: 700 }}>
+                          Libros
+                        </div>
+                        {item.bookChangeDetails.length === 0 ? (
+                          <div className="text-sm text-[#64748b]">Sin cambios en libros.</div>
+                        ) : (
+                          item.bookChangeDetails.map(detail => (
+                            <div key={`book-change-${item.userId}-${detail.bookId}`} className="rounded-md border border-[#e2e8f0] p-3">
+                              <div className="text-sm text-[#1f2937]" style={{ fontWeight: 600 }}>
+                                {detail.bookName}
+                              </div>
+                              {detail.blockedByProfile ? (
+                                <div className="text-xs text-amber-700 mt-1">
+                                  No se aplicará: permisos fijos por perfil en usuario destino.
+                                </div>
+                              ) : (
+                                <div className="text-xs text-[#475569] mt-1">
+                                  <span style={{ fontWeight: 600 }}>Antes:</span> {formatPermissionSummary(detail.from)}
+                                  <br />
+                                  <span style={{ fontWeight: 600 }}>Después:</span> {formatPermissionSummary(detail.to)}
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="space-y-2 mt-3">
+                        <div className="text-sm text-[#0f172a]" style={{ fontWeight: 700 }}>
+                          Recursos
+                        </div>
+                        {item.resourcesLockedByProfile ? (
+                          <div className="text-xs text-amber-700">
+                            No se aplicará: recursos bloqueados por perfil en usuario destino.
+                          </div>
+                        ) : item.resourcesToAdd.length === 0 && item.resourcesToRemove.length === 0 ? (
+                          <div className="text-sm text-[#64748b]">Sin cambios en recursos.</div>
+                        ) : (
+                          <div className="text-xs text-[#475569]">
+                            {item.resourcesToAdd.length > 0 && (
+                              <div>
+                                <span style={{ fontWeight: 600 }}>Agregar:</span> {item.resourcesToAdd.join(', ')}
+                              </div>
+                            )}
+                            {item.resourcesToRemove.length > 0 && (
+                              <div className="mt-1">
+                                <span style={{ fontWeight: 600 }}>Quitar:</span> {item.resourcesToRemove.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-[#e5e7eb] flex items-center justify-between gap-3">
+                <div className="text-sm text-[#334155]">
+                  Total de cambios: <span style={{ fontWeight: 700 }}>{copyPreviewTotalChanges}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setIsCopyPreviewModalOpen(false)}
+                    className="px-4 py-2.5 rounded-lg border border-[#d1d5db] text-[#374151] hover:bg-[#f8fafc]"
+                    style={{ fontWeight: 600 }}
+                  >
+                    Volver
+                  </button>
+                  <button
+                    onClick={applyCopiedPermissions}
+                    disabled={copyPreviewTotalChanges === 0}
+                    className="px-4 py-2.5 rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb] disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ fontWeight: 600 }}
+                  >
+                    Confirmar copia
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
