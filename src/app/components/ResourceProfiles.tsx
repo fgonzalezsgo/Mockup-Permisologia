@@ -131,10 +131,8 @@ const cloneStore = (value: ResourceProfilesStore): ResourceProfilesStore =>
 export function ResourceProfiles() {
   const [store, setStore] = useState<ResourceProfilesStore>(() => loadStored());
   const [savedSnapshot, setSavedSnapshot] = useState<ResourceProfilesStore>(() => loadStored());
-  const [expandedProfiles, setExpandedProfiles] = useState<string[]>(['rp-admin']);
-  const [expandedGroupsByProfile, setExpandedGroupsByProfile] = useState<Record<string, string[]>>({
-    'rp-admin': ['contratos']
-  });
+  const [expandedProfiles, setExpandedProfiles] = useState<string[]>([]);
+  const [expandedGroupsByProfile, setExpandedGroupsByProfile] = useState<Record<string, string[]>>({});
   const [profileModal, setProfileModal] = useState<{ mode: 'create' | 'edit'; profileId?: string } | null>(null);
   const [profileForm, setProfileForm] = useState({ name: '', description: '' });
 
@@ -230,7 +228,7 @@ export function ResourceProfiles() {
       };
       setStore(prev => ({ ...prev, profiles: [...prev.profiles, newProfile] }));
       setExpandedProfiles(prev => [...prev, newId]);
-      setExpandedGroupsByProfile(prev => ({ ...prev, [newId]: ['contratos'] }));
+      setExpandedGroupsByProfile(prev => ({ ...prev, [newId]: [] }));
       closeProfileModal();
       return;
     }
@@ -489,3 +487,5 @@ export function ResourceProfiles() {
     </div>
   );
 }
+
+

@@ -231,7 +231,7 @@ export function PermissionProfiles() {
   const [usersCatalog, setUsersCatalog] = useState<VisualizerAssignableUser[]>(() => loadStoredUsers());
   const [visualizerAssignments, setVisualizerAssignments] = useState<string[]>(() => loadVisualizerAssignments());
   const [visualizerSearch, setVisualizerSearch] = useState('');
-  const [expandedProfiles, setExpandedProfiles] = useState<string[]>(['1']);
+  const [expandedProfiles, setExpandedProfiles] = useState<string[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [addBooksModal, setAddBooksModal] = useState<{ profileId: string; profileName: string } | null>(null);
@@ -1318,3 +1318,4 @@ export function PermissionProfiles() {
     </div>
   );
 }
+

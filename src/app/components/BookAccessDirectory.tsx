@@ -78,7 +78,7 @@ const mockBooks: Book[] = [
 ];
 
 export function BookAccessDirectory() {
-  const [expandedBooks, setExpandedBooks] = useState<string[]>(['2']);
+  const [expandedBooks, setExpandedBooks] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [familyFilter, setFamilyFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
@@ -383,3 +383,4 @@ export function BookAccessDirectory() {
     </div>
   );
 }
+

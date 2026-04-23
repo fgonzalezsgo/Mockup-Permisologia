@@ -111,7 +111,7 @@ const availableUsers: Omit<User, 'permissions'>[] = [
 ];
 
 export function PermissionAssignment() {
-  const [expandedBooks, setExpandedBooks] = useState<string[]>(['1']);
+  const [expandedBooks, setExpandedBooks] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [books, setBooks] = useState<Book[]>(mockBooks);
   const [addUserModal, setAddUserModal] = useState<{ bookId: string; bookName: string } | null>(null);
@@ -752,3 +752,4 @@ export function PermissionAssignment() {
     </div>
   );
 }
+

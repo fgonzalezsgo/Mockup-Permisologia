@@ -801,11 +801,11 @@ export function UserPermissions() {
       if (!isCurrentlyExpanded) {
         setExpandedUserSections(current => ({
           ...current,
-          [userId]: current[userId] || { resources: true, books: true }
+          [userId]: current[userId] || { resources: false, books: false }
         }));
         setExpandedResourceGroupsByUser(current => ({
           ...current,
-          [userId]: current[userId] || ['contratos']
+          [userId]: current[userId] || []
         }));
       }
 
@@ -817,16 +817,16 @@ export function UserPermissions() {
     setExpandedUserSections(prev => ({
       ...prev,
       [userId]: {
-        resources: prev[userId]?.resources ?? true,
-        books: prev[userId]?.books ?? true,
-        [section]: !(prev[userId]?.[section] ?? true)
+        resources: prev[userId]?.resources ?? false,
+        books: prev[userId]?.books ?? false,
+        [section]: !(prev[userId]?.[section] ?? false)
       }
     }));
   };
 
   const toggleUserResourceGroup = (userId: string, groupId: string) => {
     setExpandedResourceGroupsByUser(prev => {
-      const currentGroups = prev[userId] || ['contratos'];
+      const currentGroups = prev[userId] || [];
       const nextGroups = currentGroups.includes(groupId)
         ? currentGroups.filter(id => id !== groupId)
         : [...currentGroups, groupId];
@@ -1528,6 +1528,8 @@ export function UserPermissions() {
   };
 
   const openAddBooksModal = (userId: string, userName: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user || user.disabled) return;
     setAddBooksModal({ userId, userName });
     setSelectedBooksToAdd([]);
   };
@@ -1547,6 +1549,8 @@ export function UserPermissions() {
 
   const addBooksToUser = () => {
     if (!addBooksModal || selectedBooksToAdd.length === 0) return;
+    const user = users.find(u => u.id === addBooksModal.userId);
+    if (!user || user.disabled) return;
 
     const booksToAdd = selectedBooksToAdd.map(bookId => {
       const book = booksCatalog.find(b => b.id === bookId);
@@ -1588,7 +1592,10 @@ export function UserPermissions() {
   };
 
   const getAvailableUsersForBook = (bookId: string) => {
-    return users.filter(user => !user.bookPermissions.some(book => book.bookId === bookId));
+    return users.filter(user =>
+      !user.disabled &&
+      !user.bookPermissions.some(book => book.bookId === bookId)
+    );
   };
 
   const addUsersToBook = () => {
@@ -1598,6 +1605,7 @@ export function UserPermissions() {
 
     setUsers(prev => prev.map(user => {
       if (!selectedUsersToAddToBook.includes(user.id)) return user;
+      if (user.disabled) return user;
       if (user.bookPermissions.some(book => book.bookId === addUsersToBookModal.bookId)) return user;
 
       return {
@@ -1792,10 +1800,21 @@ export function UserPermissions() {
   const getAvailableBooksForUser = (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return booksCatalog;
+    if (user.disabled) return [];
 
     const assignedBookIds = user.bookPermissions.map(b => b.bookId);
     return booksCatalog.filter(book => !assignedBookIds.includes(book.id));
   };
+
+  const isBookAccessVisuallyDisabled = (user: UserProfile, book: BookPermission) =>
+    !!user.disabled || !!book.disabled;
+
+  const isPermissionDisplayedAsEnabled = (
+    user: UserProfile,
+    book: BookPermission,
+    permissionType: keyof BookPermission['permissions']
+  ) =>
+    !isBookAccessVisuallyDisabled(user, book) && book.permissions[permissionType];
 
   const isProfileBookForUser = (user: UserProfile, bookId: string) => {
     if (!user.profileId) return false;
@@ -1805,11 +1824,14 @@ export function UserPermissions() {
   };
 
   const canEditBookPermissions = (user: UserProfile, book: BookPermission) =>
+    !user.disabled &&
     !book.disabled &&
     !isProfileBookForUser(user, book.bookId);
 
-  const canRemoveBookFromUser = (user: UserProfile, bookId: string) =>
-    !isProfileBookForUser(user, bookId);
+  const canRemoveBookFromUser = (user: UserProfile, bookId: string) => {
+    const book = user.bookPermissions.find(item => item.bookId === bookId);
+    return !user.disabled && !book?.disabled && !isProfileBookForUser(user, bookId);
+  };
 
   const toggleBookPermission = (
     userId: string,
@@ -2224,8 +2246,8 @@ export function UserPermissions() {
               />
 
               <MultiSelectFilter
-                label="Roles"
-                allLabel="Todos los roles"
+                label="Cargos"
+                allLabel="Todos los cargos"
                 options={roleOptions.map(role => ({ value: role, label: role }))}
                 selectedValues={roleFilters}
                 onChange={setRoleFilters}
@@ -2397,8 +2419,9 @@ export function UserPermissions() {
 
                     <button
                       onClick={() => openAddUsersToBookModal(bookEntry.bookId, bookEntry.bookName)}
-                      className="p-2 text-[#3b82f6] hover:bg-[#eff6ff] rounded-lg transition-colors"
-                      title="Agregar usuario al libro"
+                      disabled={getAvailableUsersForBook(bookEntry.bookId).length === 0}
+                      className="p-2 text-[#3b82f6] hover:bg-[#eff6ff] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={getAvailableUsersForBook(bookEntry.bookId).length === 0 ? 'No hay usuarios habilitados disponibles para agregar' : 'Agregar usuario al libro'}
                     >
                       <UserPlus className="w-5 h-5" />
                     </button>
@@ -2514,7 +2537,9 @@ export function UserPermissions() {
                                     initial={{ opacity: 0, x: -10 }}
                                     animate={{ opacity: 1, x: 0 }}
                                     transition={{ delay: userIndex * 0.05 }}
-                                    className={`grid grid-cols-[2.5fr_1fr_1fr_1fr_1fr_auto] gap-6 px-4 py-4 bg-white rounded-lg border items-center ${
+                                    className={`grid grid-cols-[2.5fr_1fr_1fr_1fr_1fr_auto] gap-6 px-4 py-4 rounded-lg border items-center ${
+                                      isBookAccessVisuallyDisabled(user, permission) ? 'bg-[#f9fafb]' : 'bg-white'
+                                    } ${
                                       isBookPermissionException(user, permission) ? 'border-[#f59e0b]' : 'border-[#e1e4e8]'
                                     }`}
                                   >
@@ -2558,22 +2583,25 @@ export function UserPermissions() {
                                         <button
                                           onClick={() => toggleBookPermission(user.id, permission.bookId, permissionType)}
                                           disabled={
-                                            permission.disabled ||
-                                            isProfileBookForUser(user, permission.bookId) ||
+                                            !canEditBookPermissions(user, permission) ||
                                             (permissionType === 'write' && isLibroObraMaestro(permission.bookId, permission.bookName))
                                           }
                                           className={`
                                             w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                                            ${permission.permissions[permissionType]
+                                            ${isPermissionDisplayedAsEnabled(user, permission, permissionType)
                                               ? isBookPermissionException(user, permission)
                                                 ? 'bg-[#fef3c7] text-[#f59e0b]'
                                                 : 'bg-[#dcfce7] text-[#16a34a]'
-                                              : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
+                                              : isBookAccessVisuallyDisabled(user, permission)
+                                                ? 'bg-[#f3f4f6] text-[#9ca3af]'
+                                                : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
                                             }
                                           `}
                                           title={
                                             permissionType === 'write' && isLibroObraMaestro(permission.bookId, permission.bookName)
                                               ? 'Escritura no disponible para Libro de Obra Maestro'
+                                              : user.disabled
+                                                  ? 'Usuario deshabilitado'
                                               : isProfileBookForUser(user, permission.bookId)
                                                   ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                                 : permission.disabled
@@ -2581,7 +2609,7 @@ export function UserPermissions() {
                                                   : 'Alternar permiso'
                                           }
                                         >
-                                          {permission.permissions[permissionType] ? (
+                                          {isPermissionDisplayedAsEnabled(user, permission, permissionType) ? (
                                             <Check className="w-5 h-5" strokeWidth={3} />
                                           ) : (
                                             <X className="w-5 h-5" strokeWidth={2} />
@@ -2612,6 +2640,11 @@ export function UserPermissions() {
                                           disabled={!canRemoveBookFromUser(user, permission.bookId)}
                                           className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                           title={
+                                            user.disabled
+                                              ? 'Usuario deshabilitado: no se puede quitar'
+                                              : permission.disabled
+                                                ? 'Libro deshabilitado: no se puede quitar'
+                                              :
                                             isProfileBookForUser(user, permission.bookId)
                                                 ? 'Libro heredado del perfil base (no se puede quitar)'
                                                 : 'Quitar usuario del libro'
@@ -2631,7 +2664,8 @@ export function UserPermissions() {
                               <p className="text-[#6b7280]">No hay usuarios asignados a este libro</p>
                               <button
                                 onClick={() => openAddUsersToBookModal(bookEntry.bookId, bookEntry.bookName)}
-                                className="mt-4 px-4 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 mx-auto"
+                                disabled={getAvailableUsersForBook(bookEntry.bookId).length === 0}
+                                className="mt-4 px-4 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
                                 style={{ fontWeight: 500 }}
                               >
                                 <UserPlus className="w-4 h-4" />
@@ -2752,8 +2786,8 @@ export function UserPermissions() {
               : (user.resourcePermissions && user.resourcePermissions.length > 0)
                 ? user.resourcePermissions
                 : getDefaultResourcesForUser(user);
-            const sectionState = expandedUserSections[user.id] || { resources: true, books: true };
-            const userExpandedGroups = expandedResourceGroupsByUser[user.id] || ['contratos'];
+            const sectionState = expandedUserSections[user.id] || { resources: false, books: false };
+            const userExpandedGroups = expandedResourceGroupsByUser[user.id] || [];
             const groupedResources = RESOURCE_GROUPS
               .map(group => ({
                 ...group,
@@ -2891,8 +2925,8 @@ export function UserPermissions() {
                       transition={{ duration: 0.3 }}
                       className="overflow-hidden"
                     >
-                      <div className="bg-[#f8f9fb] border-t border-[#e1e4e8] px-6 py-4">
-                        <div className="mb-4 bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
+                      <div className="bg-[#f8f9fb] border-t border-[#e1e4e8] px-6 py-4 flex flex-col gap-4">
+                        <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden order-2">
                           <button
                             onClick={() => toggleUserSection(user.id, 'resources')}
                             className="w-full px-5 py-4 flex items-center justify-between hover:bg-[#f8fafc] transition-colors"
@@ -2938,8 +2972,12 @@ export function UserPermissions() {
                                           <div key={`${user.id}-${resource.resourceId}`} className="grid grid-cols-[1fr_140px] gap-4 px-6 py-4 border-t border-[#f1f5f9]">
                                             <div className="pl-10 text-[#1f2937]">{resource.resourceName}</div>
                                             <div className="flex justify-center">
-                                              <div className="w-8 h-8 rounded border bg-[#dbeafe] border-[#93c5fd] text-[#2563eb] flex items-center justify-center">
-                                                <CheckSquare className="w-4 h-4" />
+                                              <div className={`w-8 h-8 rounded border flex items-center justify-center ${
+                                                user.disabled
+                                                  ? 'bg-[#f3f4f6] border-[#d1d5db] text-[#9ca3af]'
+                                                  : 'bg-[#dbeafe] border-[#93c5fd] text-[#2563eb]'
+                                              }`}>
+                                                {user.disabled ? <X className="w-4 h-4" /> : <CheckSquare className="w-4 h-4" />}
                                               </div>
                                             </div>
                                           </div>
@@ -2953,7 +2991,7 @@ export function UserPermissions() {
                           )}
                         </div>
 
-                        <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
+                        <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden order-1">
                           <button
                             onClick={() => toggleUserSection(user.id, 'books')}
                             className="w-full px-5 py-4 flex items-center justify-between hover:bg-[#f8fafc] transition-colors"
@@ -2977,7 +3015,9 @@ export function UserPermissions() {
                                 </h4>
                                 <button
                                   onClick={() => openAddBooksModal(user.id, user.name)}
-                                  className="px-3 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 text-sm"
+                                  disabled={!!user.disabled}
+                                  className="px-3 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title={user.disabled ? 'Usuario deshabilitado: no se pueden agregar libros' : 'Agregar libro'}
                                   style={{ fontWeight: 500 }}
                                 >
                                   <Plus className="w-4 h-4" />
@@ -2993,7 +3033,9 @@ export function UserPermissions() {
                             </p>
                             <button
                               onClick={() => openAddBooksModal(user.id, user.name)}
-                              className="px-4 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 mx-auto"
+                              disabled={!!user.disabled}
+                              className="px-4 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={user.disabled ? 'Usuario deshabilitado: no se pueden agregar libros' : 'Agregar primer libro'}
                               style={{ fontWeight: 500 }}
                             >
                               <Plus className="w-4 h-4" />
@@ -3105,7 +3147,7 @@ export function UserPermissions() {
                                       ? 'grid grid-cols-[2.5fr_1fr_1fr_1fr_1fr_auto] gap-6'
                                       : 'grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto_auto] gap-4'
                                   } ${
-                                    book.disabled ? 'bg-[#f9fafb]' : 'bg-white'
+                                    isBookAccessVisuallyDisabled(user, book) ? 'bg-[#f9fafb]' : 'bg-white'
                                   } ${
                                     isBookPermissionException(user, book) ? 'border-[#f59e0b]' : 'border-[#e1e4e8]'
                                   }`}
@@ -3123,6 +3165,11 @@ export function UserPermissions() {
                                     Deshabilitado
                                   </span>
                                 )}
+                                {user.disabled && (
+                                  <span className="px-2 py-0.5 bg-[#e5e7eb] text-[#6b7280] rounded text-xs" style={{ fontWeight: 600 }}>
+                                    Usuario deshabilitado
+                                  </span>
+                                )}
                               </div>
 
                               {/* Read Permission */}
@@ -3132,14 +3179,19 @@ export function UserPermissions() {
                                   disabled={!canEditBookPermissions(user, book)}
                                   className={`
                                   w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                                  ${book.permissions.read
+                                  ${isPermissionDisplayedAsEnabled(user, book, 'read')
                                     ? isBookPermissionException(user, book)
                                       ? 'bg-[#fef3c7] text-[#f59e0b]'
                                       : 'bg-[#dcfce7] text-[#16a34a]'
-                                    : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
+                                    : isBookAccessVisuallyDisabled(user, book)
+                                      ? 'bg-[#f3f4f6] text-[#9ca3af]'
+                                      : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
                                   }
                                 `}
                                   title={
+                                    user.disabled
+                                      ? 'Usuario deshabilitado'
+                                      :
                                     isProfileBookForUser(user, book.bookId)
                                         ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                         : book.disabled
@@ -3147,7 +3199,7 @@ export function UserPermissions() {
                                           : 'Alternar permiso de lectura'
                                   }
                                 >
-                                  {book.permissions.read ? (
+                                  {isPermissionDisplayedAsEnabled(user, book, 'read') ? (
                                     <Check className="w-5 h-5" strokeWidth={3} />
                                   ) : (
                                     <X className="w-5 h-5" strokeWidth={2} />
@@ -3162,14 +3214,19 @@ export function UserPermissions() {
                                   disabled={!canEditBookPermissions(user, book)}
                                   className={`
                                   w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                                  ${book.permissions.draft
+                                  ${isPermissionDisplayedAsEnabled(user, book, 'draft')
                                     ? isBookPermissionException(user, book)
                                       ? 'bg-[#fef3c7] text-[#f59e0b]'
                                       : 'bg-[#dcfce7] text-[#16a34a]'
-                                    : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
+                                    : isBookAccessVisuallyDisabled(user, book)
+                                      ? 'bg-[#f3f4f6] text-[#9ca3af]'
+                                      : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
                                   }
                                 `}
                                   title={
+                                    user.disabled
+                                      ? 'Usuario deshabilitado'
+                                      :
                                     isProfileBookForUser(user, book.bookId)
                                         ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                         : book.disabled
@@ -3177,7 +3234,7 @@ export function UserPermissions() {
                                           : 'Alternar permiso de asistente'
                                   }
                                 >
-                                  {book.permissions.draft ? (
+                                  {isPermissionDisplayedAsEnabled(user, book, 'draft') ? (
                                     <Check className="w-5 h-5" strokeWidth={3} />
                                   ) : (
                                     <X className="w-5 h-5" strokeWidth={2} />
@@ -3192,16 +3249,20 @@ export function UserPermissions() {
                                   disabled={!canEditBookPermissions(user, book) || isLibroObraMaestro(book.bookId, book.bookName)}
                                   className={`
                                   w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                                  ${book.permissions.write
+                                  ${isPermissionDisplayedAsEnabled(user, book, 'write')
                                     ? isBookPermissionException(user, book)
                                       ? 'bg-[#fef3c7] text-[#f59e0b]'
                                       : 'bg-[#dcfce7] text-[#16a34a]'
-                                    : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
+                                    : isBookAccessVisuallyDisabled(user, book)
+                                      ? 'bg-[#f3f4f6] text-[#9ca3af]'
+                                      : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
                                   }
                                 `}
                                   title={
                                     isLibroObraMaestro(book.bookId, book.bookName)
                                       ? 'Escritura no disponible para Libro de Obra Maestro'
+                                      : user.disabled
+                                        ? 'Usuario deshabilitado'
                                       : isProfileBookForUser(user, book.bookId)
                                           ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                         : book.disabled
@@ -3209,7 +3270,7 @@ export function UserPermissions() {
                                           : 'Alternar permiso de escritura'
                                   }
                                 >
-                                  {book.permissions.write ? (
+                                  {isPermissionDisplayedAsEnabled(user, book, 'write') ? (
                                     <Check className="w-5 h-5" strokeWidth={3} />
                                   ) : (
                                     <X className="w-5 h-5" strokeWidth={2} />
@@ -3224,14 +3285,19 @@ export function UserPermissions() {
                                       disabled={!canEditBookPermissions(user, book)}
                                       className={`
                                       w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                                      ${book.permissions.acknowledge
+                                      ${isPermissionDisplayedAsEnabled(user, book, 'acknowledge')
                                         ? isBookPermissionException(user, book)
                                           ? 'bg-[#fef3c7] text-[#f59e0b]'
                                           : 'bg-[#dcfce7] text-[#16a34a]'
-                                        : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
+                                        : isBookAccessVisuallyDisabled(user, book)
+                                          ? 'bg-[#f3f4f6] text-[#9ca3af]'
+                                          : 'bg-[#f3f4f6] text-[#9ca3af] hover:bg-[#e5e7eb]'
                                       }
                                     `}
                                       title={
+                                        user.disabled
+                                          ? 'Usuario deshabilitado'
+                                          :
                                         isProfileBookForUser(user, book.bookId)
                                             ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                             : book.disabled
@@ -3239,7 +3305,7 @@ export function UserPermissions() {
                                               : 'Alternar permiso de toma de conocimiento'
                                       }
                                     >
-                                      {book.permissions.acknowledge ? (
+                                      {isPermissionDisplayedAsEnabled(user, book, 'acknowledge') ? (
                                         <Check className="w-5 h-5" strokeWidth={3} />
                                       ) : (
                                         <X className="w-5 h-5" strokeWidth={2} />
@@ -3270,6 +3336,11 @@ export function UserPermissions() {
                                           disabled={!canRemoveBookFromUser(user, book.bookId)}
                                           className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                           title={
+                                            user.disabled
+                                              ? 'Usuario deshabilitado: no se puede quitar'
+                                              : book.disabled
+                                                ? 'Libro deshabilitado: no se puede quitar'
+                                              :
                                             isProfileBookForUser(user, book.bookId)
                                                 ? 'Libro heredado del perfil base (no se puede quitar)'
                                                 : 'Quitar libro'
@@ -3307,6 +3378,11 @@ export function UserPermissions() {
                                           disabled={!canRemoveBookFromUser(user, book.bookId)}
                                           className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                           title={
+                                            user.disabled
+                                              ? 'Usuario deshabilitado: no se puede quitar'
+                                              : book.disabled
+                                                ? 'Libro deshabilitado: no se puede quitar'
+                                              :
                                             isProfileBookForUser(user, book.bookId)
                                                 ? 'Libro heredado del perfil base (no se puede quitar)'
                                                 : 'Quitar libro'
@@ -3412,7 +3488,7 @@ export function UserPermissions() {
                     type="text"
                     value={quickCreateForm.role}
                     onChange={(e) => setQuickCreateForm(prev => ({ ...prev, role: e.target.value }))}
-                    placeholder="Cargo / Rol"
+                    placeholder="Cargo"
                     className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
                   />
                 </div>
@@ -3795,7 +3871,7 @@ export function UserPermissions() {
                             type="text"
                             value={editingDraft.role}
                             onChange={(e) => updateBulkCreateUser(editingDraft.id, { role: e.target.value })}
-                            placeholder="Cargo / Rol"
+                            placeholder="Cargo"
                             className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg"
                           />
                           <select
@@ -4114,10 +4190,10 @@ export function UserPermissions() {
                   </select>
                 </div>
 
-                {/* Role Input */}
+                {/* Cargo Input */}
                 <div>
                   <label className="block text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
-                    Cargo / Rol
+                    Cargo
                   </label>
                   <input
                     type="text"
