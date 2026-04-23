@@ -677,6 +677,10 @@ export function UserPermissions() {
   });
   const [addBooksModal, setAddBooksModal] = useState<{ userId: string; userName: string } | null>(null);
   const [selectedBooksToAdd, setSelectedBooksToAdd] = useState<string[]>([]);
+  const [addResourcesModal, setAddResourcesModal] = useState<{ userId: string; userName: string } | null>(null);
+  const [selectedResourcesToAdd, setSelectedResourcesToAdd] = useState<string[]>([]);
+  const [expandedResourceModulesInAddModal, setExpandedResourceModulesInAddModal] = useState<string[]>([]);
+  const [resourceSearchInAddModal, setResourceSearchInAddModal] = useState('');
   const [addUsersToBookModal, setAddUsersToBookModal] = useState<{ bookId: string; bookName: string } | null>(null);
   const [selectedUsersToAddToBook, setSelectedUsersToAddToBook] = useState<string[]>([]);
   const [copyPermissionsModal, setCopyPermissionsModal] = useState<{ sourceUserId: string; sourceUserName: string } | null>(null);
@@ -1809,12 +1813,93 @@ export function UserPermissions() {
   const isBookAccessVisuallyDisabled = (user: UserProfile, book: BookPermission) =>
     !!user.disabled || !!book.disabled;
 
+  const getPermissionHierarchyLevel = (permissions: PermissionSet) => {
+    if (permissions.write) return 2;
+    if (permissions.draft) return 1;
+    if (permissions.read) return 0;
+    return -1;
+  };
+
+  const buildPermissionsFromHierarchyLevel = (level: number, acknowledge: boolean): PermissionSet => ({
+    read: level >= 0,
+    draft: level >= 1,
+    write: level >= 2,
+    acknowledge
+  });
+
+  const normalizePermissionsByHierarchy = (permissions: PermissionSet): PermissionSet => {
+    const level = getPermissionHierarchyLevel(permissions);
+    return buildPermissionsFromHierarchyLevel(level, permissions.acknowledge);
+  };
+
+  const getBasePermissionsForBook = (user: UserProfile, book: BookPermission): PermissionSet => {
+    const base = getProfileBookPermissions(user.profileId, book.bookId);
+    if (!base) {
+      return { read: false, draft: false, write: false, acknowledge: false };
+    }
+    return normalizePermissionsByHierarchy(base);
+  };
+
+  const getNextPermissionsForPermissionState = (
+    user: UserProfile,
+    book: BookPermission,
+    permissionType: keyof PermissionSet,
+    targetEnabled: boolean
+  ): PermissionSet => {
+    const current = normalizePermissionsByHierarchy(book.permissions);
+    const base = getBasePermissionsForBook(user, book);
+
+    if (permissionType === 'acknowledge') {
+      return {
+        ...current,
+        acknowledge: targetEnabled || base.acknowledge
+      };
+    }
+
+    const currentLevel = getPermissionHierarchyLevel(current);
+    const baseLevel = getPermissionHierarchyLevel(base);
+    const permissionLevelByType: Record<'read' | 'draft' | 'write', number> = {
+      read: 0,
+      draft: 1,
+      write: 2
+    };
+
+    let desiredLevel = currentLevel;
+
+    if (targetEnabled) {
+      desiredLevel = Math.max(currentLevel, permissionLevelByType[permissionType]);
+    } else {
+      if (permissionType === 'write') desiredLevel = 1;
+      if (permissionType === 'draft') desiredLevel = 0;
+      if (permissionType === 'read') desiredLevel = -1;
+    }
+
+    if (isLibroObraMaestro(book.bookId, book.bookName)) {
+      desiredLevel = Math.min(desiredLevel, 1);
+    }
+
+    desiredLevel = Math.max(desiredLevel, baseLevel);
+    return buildPermissionsFromHierarchyLevel(desiredLevel, current.acknowledge);
+  };
+
+  const canToggleBookPermission = (
+    user: UserProfile,
+    book: BookPermission,
+    permissionType: keyof PermissionSet
+  ) => {
+    if (user.disabled || book.disabled) return false;
+    if (permissionType === 'write' && isLibroObraMaestro(book.bookId, book.bookName)) return false;
+    const current = normalizePermissionsByHierarchy(book.permissions);
+    const next = getNextPermissionsForPermissionState(user, book, permissionType, !current[permissionType]);
+    return !hasSamePermissions(current, next);
+  };
+
   const isPermissionDisplayedAsEnabled = (
     user: UserProfile,
     book: BookPermission,
     permissionType: keyof BookPermission['permissions']
   ) =>
-    !isBookAccessVisuallyDisabled(user, book) && book.permissions[permissionType];
+    !isBookAccessVisuallyDisabled(user, book) && normalizePermissionsByHierarchy(book.permissions)[permissionType];
 
   const isProfileBookForUser = (user: UserProfile, bookId: string) => {
     if (!user.profileId) return false;
@@ -1824,9 +1909,8 @@ export function UserPermissions() {
   };
 
   const canEditBookPermissions = (user: UserProfile, book: BookPermission) =>
-    !user.disabled &&
-    !book.disabled &&
-    !isProfileBookForUser(user, book.bookId);
+    (['read', 'draft', 'write', 'acknowledge'] as Array<keyof PermissionSet>)
+      .some(permissionType => canToggleBookPermission(user, book, permissionType));
 
   const canRemoveBookFromUser = (user: UserProfile, bookId: string) => {
     const book = user.bookPermissions.find(item => item.bookId === bookId);
@@ -1840,7 +1924,7 @@ export function UserPermissions() {
   ) => {
     const targetUser = users.find(user => user.id === userId);
     const targetBook = targetUser?.bookPermissions.find(book => book.bookId === bookId);
-    if (!targetUser || !targetBook || !canEditBookPermissions(targetUser, targetBook)) return;
+    if (!targetUser || !targetBook || !canToggleBookPermission(targetUser, targetBook, permissionType)) return;
 
     setUsers(prev => prev.map(user =>
       user.id === userId
@@ -1850,18 +1934,13 @@ export function UserPermissions() {
               book.bookId === bookId
                 ? {
                     ...book,
-                    ...(canEditBookPermissions(user, book) ? {
-                    permissions: permissionType === 'write' && isLibroObraMaestro(book.bookId, book.bookName)
-                      ? {
-                          ...book.permissions,
-                          write: false
-                        }
-                      : {
-                          ...book.permissions,
-                          [permissionType]: !book.permissions[permissionType]
-                        },
+                    permissions: getNextPermissionsForPermissionState(
+                      user,
+                      book,
+                      permissionType,
+                      !normalizePermissionsByHierarchy(book.permissions)[permissionType]
+                    ),
                     isCustom: true
-                    } : {})
                   }
                 : book
             )
@@ -1873,26 +1952,20 @@ export function UserPermissions() {
   const toggleAllPermissions = (userId: string, permissionType: keyof BookPermission['permissions']) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
-    const editableBooks = user.bookPermissions.filter(book => canEditBookPermissions(user, book));
-    if (editableBooks.length === 0) return;
+    const actionableBooks = user.bookPermissions.filter(book => canToggleBookPermission(user, book, permissionType));
+    if (actionableBooks.length === 0) return;
 
-    // Check if all permissions of this type are already enabled
-    const allEnabled = editableBooks.every(book => book.permissions[permissionType]);
+    const allEnabled = actionableBooks.every(book => normalizePermissionsByHierarchy(book.permissions)[permissionType]);
+    const targetState = !allEnabled;
 
-    // Toggle all to opposite state
     setUsers(prev => prev.map(u =>
       u.id === userId
         ? {
             ...u,
             bookPermissions: u.bookPermissions.map(book => ({
               ...book,
-              permissions: canEditBookPermissions(u, book)
-                ? {
-                    ...book.permissions,
-                    ...(permissionType === 'write' && isLibroObraMaestro(book.bookId, book.bookName)
-                      ? { write: false }
-                      : { [permissionType]: !allEnabled })
-                  }
+              permissions: canToggleBookPermission(u, book, permissionType)
+                ? getNextPermissionsForPermissionState(u, book, permissionType, targetState)
                 : book.permissions
             }))
           }
@@ -1903,13 +1976,13 @@ export function UserPermissions() {
   const getPermissionCheckboxState = (userId: string, permissionType: keyof BookPermission['permissions']) => {
     const user = users.find(u => u.id === userId);
     if (!user || user.bookPermissions.length === 0) return 'none';
-    const editableBooks = user.bookPermissions.filter(book => canEditBookPermissions(user, book));
-    if (editableBooks.length === 0) return 'none';
+    const actionableBooks = user.bookPermissions.filter(book => canToggleBookPermission(user, book, permissionType));
+    if (actionableBooks.length === 0) return 'none';
 
-    const enabledCount = editableBooks.filter(book => book.permissions[permissionType]).length;
+    const enabledCount = actionableBooks.filter(book => normalizePermissionsByHierarchy(book.permissions)[permissionType]).length;
 
     if (enabledCount === 0) return 'none';
-    if (enabledCount === editableBooks.length) return 'all';
+    if (enabledCount === actionableBooks.length) return 'all';
     return 'some';
   };
 
@@ -1917,6 +1990,87 @@ export function UserPermissions() {
     const user = users.find(u => u.id === userId);
     if (!user) return false;
     return user.bookPermissions.some(book => canEditBookPermissions(user, book));
+  };
+
+  const toManagedResourceList = (user: UserProfile) => {
+    const current = getEffectiveResourcesForUser(user);
+    const ids = new Set(current.map(resource => resource.resourceId));
+    return RESOURCE_CATALOG.filter(resource => ids.has(resource.resourceId));
+  };
+
+  const getAvailableResourcesForUser = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user || user.disabled) return [];
+    const assignedIds = new Set(toManagedResourceList(user).map(resource => resource.resourceId));
+    return RESOURCE_CATALOG.filter(resource => !assignedIds.has(resource.resourceId));
+  };
+
+  const openAddResourcesModal = (userId: string, userName: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user || user.disabled) return;
+    const available = getAvailableResourcesForUser(userId);
+    const moduleNames = RESOURCE_GROUPS
+      .map(group => group.moduleName)
+      .filter(moduleName => available.some(resource => resource.moduleName === moduleName));
+    setAddResourcesModal({ userId, userName });
+    setSelectedResourcesToAdd([]);
+    setExpandedResourceModulesInAddModal(moduleNames);
+    setResourceSearchInAddModal('');
+  };
+
+  const closeAddResourcesModal = () => {
+    setAddResourcesModal(null);
+    setSelectedResourcesToAdd([]);
+    setExpandedResourceModulesInAddModal([]);
+    setResourceSearchInAddModal('');
+  };
+
+  const toggleResourceSelectionToAdd = (resourceId: string) => {
+    setSelectedResourcesToAdd(prev =>
+      prev.includes(resourceId)
+        ? prev.filter(id => id !== resourceId)
+        : [...prev, resourceId]
+    );
+  };
+
+  const toggleResourceModuleInAddModal = (moduleName: string) => {
+    setExpandedResourceModulesInAddModal(prev =>
+      prev.includes(moduleName)
+        ? prev.filter(name => name !== moduleName)
+        : [...prev, moduleName]
+    );
+  };
+
+  const addResourcesToUser = () => {
+    if (!addResourcesModal || selectedResourcesToAdd.length === 0) return;
+
+    setUsers(prev => prev.map(user => {
+      if (user.id !== addResourcesModal.userId || user.disabled) return user;
+      const currentResources = toManagedResourceList(user);
+      const existing = new Set(currentResources.map(resource => resource.resourceId));
+      const toAdd = RESOURCE_CATALOG.filter(resource =>
+        selectedResourcesToAdd.includes(resource.resourceId) && !existing.has(resource.resourceId)
+      );
+      return {
+        ...user,
+        resourceProfileIds: [],
+        resourcePermissions: [...currentResources, ...toAdd]
+      };
+    }));
+
+    closeAddResourcesModal();
+  };
+
+  const removeResourceFromUser = (userId: string, resourceId: string) => {
+    setUsers(prev => prev.map(user => {
+      if (user.id !== userId || user.disabled) return user;
+      const currentResources = toManagedResourceList(user);
+      return {
+        ...user,
+        resourceProfileIds: [],
+        resourcePermissions: currentResources.filter(resource => resource.resourceId !== resourceId)
+      };
+    }));
   };
 
   const getEffectiveResourcesForUser = (user: UserProfile) => {
@@ -1949,7 +2103,9 @@ export function UserPermissions() {
       ? user.bookPermissions
       : user.bookPermissions.filter(book => bookFilters.includes(book.bookId));
     const matchesPermission = permissionFilters.length === 0 ||
-      booksForPermissionCheck.some(book => permissionFilters.some(permission => book.permissions[permission]));
+      booksForPermissionCheck.some(book =>
+        permissionFilters.some(permission => normalizePermissionsByHierarchy(book.permissions)[permission])
+      );
 
     return matchesSearch && matchesGroup && matchesRole && matchesProfile && matchesBook && matchesPermission;
   });
@@ -1974,7 +2130,7 @@ export function UserPermissions() {
           return permission ? { user, permission } : null;
         })
         .filter((entry): entry is { user: UserProfile; permission: BookPermission } => entry !== null)
-        .filter(({ permission }) => permissionFilters.length === 0 || permissionFilters.some(permissionType => permission.permissions[permissionType]))
+        .filter(({ permission }) => permissionFilters.length === 0 || permissionFilters.some(permissionType => normalizePermissionsByHierarchy(permission.permissions)[permissionType]))
     }))
     .filter(book => bookFilters.length === 0 || bookFilters.includes(book.bookId));
 
@@ -1994,10 +2150,11 @@ export function UserPermissions() {
     permissionType: keyof BookPermission['permissions']
   ) => {
     const targetAssignments = booksFromFilteredUsers.find(book => book.bookId === bookId)?.assignments || [];
-    const actionableAssignments = targetAssignments.filter(({ user, permission }) => canEditBookPermissions(user, permission));
+    const actionableAssignments = targetAssignments.filter(({ user, permission }) => canToggleBookPermission(user, permission, permissionType));
     if (actionableAssignments.length === 0) return;
 
-    const allEnabled = actionableAssignments.every(({ permission }) => permission.permissions[permissionType]);
+    const allEnabled = actionableAssignments.every(({ permission }) => normalizePermissionsByHierarchy(permission.permissions)[permissionType]);
+    const targetState = !allEnabled;
     const targetUserIds = new Set(actionableAssignments.map(({ user }) => user.id));
 
     setUsers(prev => prev.map(user => {
@@ -2006,15 +2163,10 @@ export function UserPermissions() {
       return {
         ...user,
         bookPermissions: user.bookPermissions.map(book =>
-          book.bookId === bookId && canEditBookPermissions(user, book)
+          book.bookId === bookId && canToggleBookPermission(user, book, permissionType)
             ? {
                 ...book,
-                permissions: {
-                  ...book.permissions,
-                  ...(permissionType === 'write' && isLibroObraMaestro(book.bookId, book.bookName)
-                    ? { write: false }
-                    : { [permissionType]: !allEnabled })
-                },
+                permissions: getNextPermissionsForPermissionState(user, book, permissionType, targetState),
                 isCustom: true
               }
             : book
@@ -2025,7 +2177,10 @@ export function UserPermissions() {
 
   const hasEditableAssignmentsForBook = (bookId: string) => {
     const targetAssignments = booksFromFilteredUsers.find(book => book.bookId === bookId)?.assignments || [];
-    return targetAssignments.some(({ user, permission }) => canEditBookPermissions(user, permission));
+    return targetAssignments.some(({ user, permission }) =>
+      (['read', 'draft', 'write', 'acknowledge'] as Array<keyof PermissionSet>)
+        .some(permissionType => canToggleBookPermission(user, permission, permissionType))
+    );
   };
 
   const getBookPermissionCheckboxState = (
@@ -2033,10 +2188,10 @@ export function UserPermissions() {
     permissionType: keyof BookPermission['permissions']
   ) => {
     const targetAssignments = booksFromFilteredUsers.find(book => book.bookId === bookId)?.assignments || [];
-    const actionableAssignments = targetAssignments.filter(({ user, permission }) => canEditBookPermissions(user, permission));
+    const actionableAssignments = targetAssignments.filter(({ user, permission }) => canToggleBookPermission(user, permission, permissionType));
     if (actionableAssignments.length === 0) return 'none';
 
-    const enabledCount = actionableAssignments.filter(({ permission }) => permission.permissions[permissionType]).length;
+    const enabledCount = actionableAssignments.filter(({ permission }) => normalizePermissionsByHierarchy(permission.permissions)[permissionType]).length;
     if (enabledCount === 0) return 'none';
     if (enabledCount === actionableAssignments.length) return 'all';
     return 'some';
@@ -2582,10 +2737,7 @@ export function UserPermissions() {
                                       <div key={permissionType} className="flex justify-center">
                                         <button
                                           onClick={() => toggleBookPermission(user.id, permission.bookId, permissionType)}
-                                          disabled={
-                                            !canEditBookPermissions(user, permission) ||
-                                            (permissionType === 'write' && isLibroObraMaestro(permission.bookId, permission.bookName))
-                                          }
+                                          disabled={!canToggleBookPermission(user, permission, permissionType)}
                                           className={`
                                             w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                                             ${isPermissionDisplayedAsEnabled(user, permission, permissionType)
@@ -2598,14 +2750,12 @@ export function UserPermissions() {
                                             }
                                           `}
                                           title={
-                                            permissionType === 'write' && isLibroObraMaestro(permission.bookId, permission.bookName)
-                                              ? 'Escritura no disponible para Libro de Obra Maestro'
-                                              : user.disabled
-                                                  ? 'Usuario deshabilitado'
-                                              : isProfileBookForUser(user, permission.bookId)
-                                                  ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
-                                                : permission.disabled
-                                                  ? 'Libro deshabilitado'
+                                            user.disabled
+                                              ? 'Usuario deshabilitado'
+                                              : permission.disabled
+                                                ? 'Libro deshabilitado'
+                                                : permissionType === 'write' && isLibroObraMaestro(permission.bookId, permission.bookName)
+                                                  ? 'Escritura no disponible para Libro de Obra Maestro'
                                                   : 'Alternar permiso'
                                           }
                                         >
@@ -2942,49 +3092,73 @@ export function UserPermissions() {
                           </button>
 
                           {sectionState.resources && (
-                            <div className="border-t border-[#e5e7eb] bg-[#f8f9fb]">
+                            <div className="border-t border-[#e5e7eb] bg-[#f8f9fb] p-4">
+                              <div className="flex items-center justify-between mb-4">
+                                <h4 className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                  Recursos Asignados ({userResources.length})
+                                </h4>
+                                <button
+                                  onClick={() => openAddResourcesModal(user.id, user.name)}
+                                  disabled={!!user.disabled}
+                                  className="px-3 py-2 bg-[#0ea5e9] text-white rounded-lg hover:bg-[#0284c7] transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title={user.disabled ? 'Usuario deshabilitado: no se pueden agregar recursos' : 'Agregar recurso'}
+                                  style={{ fontWeight: 500 }}
+                                >
+                                  <Plus className="w-4 h-4" />
+                                  Agregar Recurso
+                                </button>
+                              </div>
+
                               {userResources.length === 0 ? (
-                                <div className="px-5 py-4 text-sm text-[#6b7280]">
+                                <div className="px-5 py-4 text-sm text-[#6b7280] bg-white border border-[#e5e7eb] rounded-lg">
                                   Este usuario no tiene recursos asignados
                                 </div>
                               ) : (
                                 <>
-                                  <div className="grid grid-cols-[1fr_140px] gap-4 px-6 py-3 border-b border-[#e5e7eb] text-[#111827] bg-white">
+                                  <div className="grid grid-cols-[1fr_140px] gap-4 px-6 py-3 border border-[#e5e7eb] border-b-0 text-[#111827] bg-white rounded-t-lg">
                                     <div style={{ fontWeight: 600 }}>Recurso</div>
                                     <div className="text-center" style={{ fontWeight: 600 }}>Permiso</div>
                                   </div>
-                                  {groupedResources.map(group => {
-                                    const groupOpen = userExpandedGroups.includes(group.id);
-                                    return (
-                                      <div key={`${user.id}-${group.id}`} className="border-b border-[#e5e7eb] last:border-b-0 bg-white">
-                                        <button
-                                          onClick={() => toggleUserResourceGroup(user.id, group.id)}
-                                          className="w-full grid grid-cols-[1fr_140px] gap-4 px-6 py-4 text-left hover:bg-[#f8fafc] transition-colors"
-                                        >
-                                          <div className="flex items-center gap-2 text-[#111827]" style={{ fontWeight: 600 }}>
-                                            {groupOpen ? <ChevronDown className="w-4 h-4 text-[#6b7280]" /> : <ChevronRight className="w-4 h-4 text-[#6b7280]" />}
-                                            {group.name}
-                                          </div>
-                                          <div />
-                                        </button>
+                                  <div className="border border-[#e5e7eb] rounded-b-lg overflow-hidden bg-white">
+                                    {groupedResources.map(group => {
+                                      const groupOpen = userExpandedGroups.includes(group.id);
+                                      return (
+                                        <div key={`${user.id}-${group.id}`} className="border-b border-[#e5e7eb] last:border-b-0 bg-white">
+                                          <button
+                                            onClick={() => toggleUserResourceGroup(user.id, group.id)}
+                                            className="w-full grid grid-cols-[1fr_140px] gap-4 px-6 py-4 text-left hover:bg-[#f8fafc] transition-colors"
+                                          >
+                                            <div className="flex items-center gap-2 text-[#111827]" style={{ fontWeight: 600 }}>
+                                              {groupOpen ? <ChevronDown className="w-4 h-4 text-[#6b7280]" /> : <ChevronRight className="w-4 h-4 text-[#6b7280]" />}
+                                              {group.name}
+                                            </div>
+                                            <div />
+                                          </button>
 
-                                        {groupOpen && group.resources.map(resource => (
-                                          <div key={`${user.id}-${resource.resourceId}`} className="grid grid-cols-[1fr_140px] gap-4 px-6 py-4 border-t border-[#f1f5f9]">
-                                            <div className="pl-10 text-[#1f2937]">{resource.resourceName}</div>
-                                            <div className="flex justify-center">
-                                              <div className={`w-8 h-8 rounded border flex items-center justify-center ${
-                                                user.disabled
-                                                  ? 'bg-[#f3f4f6] border-[#d1d5db] text-[#9ca3af]'
-                                                  : 'bg-[#dbeafe] border-[#93c5fd] text-[#2563eb]'
-                                              }`}>
-                                                {user.disabled ? <X className="w-4 h-4" /> : <CheckSquare className="w-4 h-4" />}
+                                          {groupOpen && group.resources.map(resource => (
+                                            <div key={`${user.id}-${resource.resourceId}`} className="grid grid-cols-[1fr_140px] gap-4 px-6 py-4 border-t border-[#f1f5f9] items-center">
+                                              <div className="pl-10 text-[#1f2937]">{resource.resourceName}</div>
+                                              <div className="flex justify-center">
+                                                {user.disabled ? (
+                                                  <div className="w-10 h-10 rounded-md border border-[#d1d5db] bg-[#f3f4f6] text-[#9ca3af] flex items-center justify-center">
+                                                    <X className="w-5 h-5" />
+                                                  </div>
+                                                ) : (
+                                                  <button
+                                                    onClick={() => removeResourceFromUser(user.id, resource.resourceId)}
+                                                    className="w-10 h-10 rounded-md border border-[#fecaca] bg-white text-[#ef4444] hover:bg-[#fee2e2] flex items-center justify-center transition-colors"
+                                                    title="Quitar recurso del usuario"
+                                                  >
+                                                    <Trash2 className="w-5 h-5" />
+                                                  </button>
+                                                )}
                                               </div>
                                             </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    );
-                                  })}
+                                          ))}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </>
                               )}
                             </div>
@@ -3176,7 +3350,7 @@ export function UserPermissions() {
                               <div className="flex justify-center">
                                 <button
                                   onClick={() => toggleBookPermission(user.id, book.bookId, 'read')}
-                                  disabled={!canEditBookPermissions(user, book)}
+                                  disabled={!canToggleBookPermission(user, book, 'read')}
                                   className={`
                                   w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                                   ${isPermissionDisplayedAsEnabled(user, book, 'read')
@@ -3191,12 +3365,9 @@ export function UserPermissions() {
                                   title={
                                     user.disabled
                                       ? 'Usuario deshabilitado'
-                                      :
-                                    isProfileBookForUser(user, book.bookId)
-                                        ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
-                                        : book.disabled
-                                          ? 'Libro deshabilitado'
-                                          : 'Alternar permiso de lectura'
+                                      : book.disabled
+                                        ? 'Libro deshabilitado'
+                                        : 'Alternar permiso de lectura'
                                   }
                                 >
                                   {isPermissionDisplayedAsEnabled(user, book, 'read') ? (
@@ -3211,7 +3382,7 @@ export function UserPermissions() {
                               <div className="flex justify-center">
                                 <button
                                   onClick={() => toggleBookPermission(user.id, book.bookId, 'draft')}
-                                  disabled={!canEditBookPermissions(user, book)}
+                                  disabled={!canToggleBookPermission(user, book, 'draft')}
                                   className={`
                                   w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                                   ${isPermissionDisplayedAsEnabled(user, book, 'draft')
@@ -3226,12 +3397,9 @@ export function UserPermissions() {
                                   title={
                                     user.disabled
                                       ? 'Usuario deshabilitado'
-                                      :
-                                    isProfileBookForUser(user, book.bookId)
-                                        ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
-                                        : book.disabled
-                                          ? 'Libro deshabilitado'
-                                          : 'Alternar permiso de asistente'
+                                      : book.disabled
+                                        ? 'Libro deshabilitado'
+                                        : 'Alternar permiso de asistente'
                                   }
                                 >
                                   {isPermissionDisplayedAsEnabled(user, book, 'draft') ? (
@@ -3246,7 +3414,7 @@ export function UserPermissions() {
                               <div className="flex justify-center">
                                 <button
                                   onClick={() => toggleBookPermission(user.id, book.bookId, 'write')}
-                                  disabled={!canEditBookPermissions(user, book) || isLibroObraMaestro(book.bookId, book.bookName)}
+                                  disabled={!canToggleBookPermission(user, book, 'write')}
                                   className={`
                                   w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                                   ${isPermissionDisplayedAsEnabled(user, book, 'write')
@@ -3263,8 +3431,6 @@ export function UserPermissions() {
                                       ? 'Escritura no disponible para Libro de Obra Maestro'
                                       : user.disabled
                                         ? 'Usuario deshabilitado'
-                                      : isProfileBookForUser(user, book.bookId)
-                                          ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
                                         : book.disabled
                                           ? 'Libro deshabilitado'
                                           : 'Alternar permiso de escritura'
@@ -3282,7 +3448,7 @@ export function UserPermissions() {
                                   <div className="flex justify-center">
                                     <button
                                       onClick={() => toggleBookPermission(user.id, book.bookId, 'acknowledge')}
-                                      disabled={!canEditBookPermissions(user, book)}
+                                      disabled={!canToggleBookPermission(user, book, 'acknowledge')}
                                       className={`
                                       w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                                       ${isPermissionDisplayedAsEnabled(user, book, 'acknowledge')
@@ -3297,12 +3463,9 @@ export function UserPermissions() {
                                       title={
                                         user.disabled
                                           ? 'Usuario deshabilitado'
-                                          :
-                                        isProfileBookForUser(user, book.bookId)
-                                            ? 'Permisos heredados del perfil base (solo editable en libros nuevos)'
-                                            : book.disabled
-                                              ? 'Libro deshabilitado'
-                                              : 'Alternar permiso de toma de conocimiento'
+                                          : book.disabled
+                                            ? 'Libro deshabilitado'
+                                            : 'Alternar permiso de toma de conocimiento'
                                       }
                                     >
                                       {isPermissionDisplayedAsEnabled(user, book, 'acknowledge') ? (
@@ -4332,6 +4495,171 @@ export function UserPermissions() {
                   style={{ fontWeight: 600 }}
                 >
                   Guardar Cambios
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Resources Modal */}
+      <AnimatePresence>
+        {addResourcesModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center p-8 z-50"
+            onClick={closeAddResourcesModal}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl shadow-2xl p-8 max-w-lg w-full max-h-[80vh] overflow-y-auto"
+            >
+              <div className="flex items-start gap-4 mb-6">
+                <div className="w-12 h-12 rounded-xl bg-[#ecfeff] flex items-center justify-center">
+                  <Plus className="w-6 h-6 text-[#0ea5e9]" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-2xl mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
+                    Agregar Recursos
+                  </h3>
+                  <p className="text-sm text-[#6b7280]">
+                    Selecciona recursos para <span style={{ fontWeight: 500 }}>{addResourcesModal.userName}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                {(() => {
+                  const availableResources = getAvailableResourcesForUser(addResourcesModal.userId);
+                  const normalizedSearch = resourceSearchInAddModal.trim().toLowerCase();
+                  const filteredResources = normalizedSearch.length === 0
+                    ? availableResources
+                    : availableResources.filter(resource =>
+                        resource.resourceName.toLowerCase().includes(normalizedSearch) ||
+                        resource.moduleName.toLowerCase().includes(normalizedSearch)
+                      );
+
+                  const resourcesByModule = filteredResources.reduce<Record<string, UserResourceAccess[]>>((acc, resource) => {
+                    if (!acc[resource.moduleName]) acc[resource.moduleName] = [];
+                    acc[resource.moduleName].push(resource);
+                    return acc;
+                  }, {});
+                  const mappedModuleNames = new Set(Object.keys(resourcesByModule));
+                  const moduleNames = [
+                    ...RESOURCE_GROUPS
+                      .map(group => group.moduleName)
+                      .filter(moduleName => mappedModuleNames.has(moduleName)),
+                    ...Object.keys(resourcesByModule)
+                      .filter(moduleName => !RESOURCE_GROUPS.some(group => group.moduleName === moduleName))
+                      .sort((a, b) => a.localeCompare(b))
+                  ];
+
+                  if (availableResources.length === 0) {
+                    return (
+                      <div className="text-center py-8">
+                        <p className="text-[#6b7280]">No hay recursos disponibles para agregar</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      <div>
+                        <input
+                          type="text"
+                          value={resourceSearchInAddModal}
+                          onChange={(e) => setResourceSearchInAddModal(e.target.value)}
+                          placeholder="Buscar recurso o módulo..."
+                          className="w-full px-3 py-2 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] focus:border-transparent"
+                        />
+                      </div>
+                      {filteredResources.length === 0 ? (
+                        <div className="text-center py-8">
+                          <p className="text-[#6b7280]">No hay recursos para esta búsqueda</p>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-[#d1d5db] overflow-hidden bg-white">
+                          <div className="grid grid-cols-[1fr_120px] gap-4 px-4 py-3 border-b border-[#e5e7eb] bg-[#f8fafc]">
+                            <div style={{ fontWeight: 700, color: '#111827' }}>Recurso</div>
+                            <div className="text-center" style={{ fontWeight: 700, color: '#111827' }}>Permiso</div>
+                          </div>
+
+                          {moduleNames.map(moduleName => {
+                            const isModuleExpanded = expandedResourceModulesInAddModal.includes(moduleName);
+                            const moduleResources = resourcesByModule[moduleName]
+                              .slice()
+                              .sort((a, b) => a.resourceName.localeCompare(b.resourceName));
+
+                            return (
+                              <div key={moduleName} className="border-b border-[#e5e7eb] last:border-b-0">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleResourceModuleInAddModal(moduleName)}
+                                  className="w-full grid grid-cols-[1fr_120px] gap-4 px-4 py-3 bg-[#f9fafb] hover:bg-[#f3f4f6] transition-colors text-left"
+                                >
+                                  <div className="flex items-center gap-2" style={{ fontWeight: 700, color: '#111827' }}>
+                                    {isModuleExpanded ? (
+                                      <ChevronDown className="w-4 h-4 text-[#6b7280]" />
+                                    ) : (
+                                      <ChevronRight className="w-4 h-4 text-[#6b7280]" />
+                                    )}
+                                    {moduleName}
+                                  </div>
+                                  <div />
+                                </button>
+
+                                {isModuleExpanded && moduleResources.map(resource => {
+                                  const checked = selectedResourcesToAdd.includes(resource.resourceId);
+                                  return (
+                                    <button
+                                      key={resource.resourceId}
+                                      type="button"
+                                      onClick={() => toggleResourceSelectionToAdd(resource.resourceId)}
+                                      className="w-full grid grid-cols-[1fr_120px] gap-4 px-10 py-3 border-t border-[#eef2f7] hover:bg-[#f8fafc] transition-colors text-left"
+                                    >
+                                      <div style={{ color: '#0f172a' }}>{resource.resourceName}</div>
+                                      <div className="flex justify-center">
+                                        <span className={`w-8 h-8 rounded border flex items-center justify-center ${
+                                          checked
+                                            ? 'bg-[#dbeafe] border-[#93c5fd] text-[#2563eb]'
+                                            : 'bg-white border-[#94a3b8] text-transparent'
+                                        }`}>
+                                          <Check className="w-4 h-4" strokeWidth={3} />
+                                        </span>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={closeAddResourcesModal}
+                  className="flex-1 px-4 py-3 text-[#374151] hover:bg-[#f3f4f6] rounded-lg transition-colors border border-[#d1d5db]"
+                  style={{ fontWeight: 500 }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={addResourcesToUser}
+                  disabled={selectedResourcesToAdd.length === 0}
+                  className="flex-1 px-4 py-3 bg-[#0ea5e9] text-white hover:bg-[#0284c7] rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ fontWeight: 600 }}
+                >
+                  Agregar {selectedResourcesToAdd.length > 0 ? `(${selectedResourcesToAdd.length})` : ''}
                 </button>
               </div>
             </motion.div>

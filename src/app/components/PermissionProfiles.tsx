@@ -36,6 +36,12 @@ interface ResourceCatalogItem {
   moduleName: string;
 }
 
+interface ResourceGroupView {
+  id: string;
+  name: string;
+  moduleName: string;
+}
+
 interface VisualizerAssignableUser {
   id: string;
   name: string;
@@ -201,6 +207,13 @@ const RESOURCE_CATALOG: ResourceCatalogItem[] = [
   { id: 'intentos_fallidos', name: 'Intentos Fallidos', moduleName: 'SuperAdministrador' }
 ];
 
+const RESOURCE_GROUPS: ResourceGroupView[] = [
+  { id: 'contratos', name: 'Contratos', moduleName: 'Contratos' },
+  { id: 'cobranzas', name: 'Cobranzas', moduleName: 'Cobranzas' },
+  { id: 'centro_ayuda', name: 'Centro de Ayuda', moduleName: 'Centro de Ayuda' },
+  { id: 'superadministrador', name: 'SuperAdministrador', moduleName: 'SuperAdministrador' }
+];
+
 const normalizeProfiles = (input: Profile[]): Profile[] =>
   input
     .filter(profile =>
@@ -272,6 +285,7 @@ export function PermissionProfiles() {
   const [selectedBooksToAdd, setSelectedBooksToAdd] = useState<string[]>([]);
   const [selectedResourcesToAdd, setSelectedResourcesToAdd] = useState<string[]>([]);
   const [expandedResourceModulesInModal, setExpandedResourceModulesInModal] = useState<string[]>([]);
+  const [assignedBooksSectionOpenByProfile, setAssignedBooksSectionOpenByProfile] = useState<Record<string, boolean>>({});
   const [expandedAssignedResourcesByProfile, setExpandedAssignedResourcesByProfile] = useState<Record<string, string[]>>({});
   const [assignedResourcesSectionOpenByProfile, setAssignedResourcesSectionOpenByProfile] = useState<Record<string, boolean>>({});
   const [newBookName, setNewBookName] = useState('');
@@ -472,7 +486,10 @@ export function PermissionProfiles() {
     setAddResourcesModal({ profileId, profileName });
     setSelectedResourcesToAdd([]);
     const availableResources = getAvailableResourcesForProfile(profileId);
-    const modules = Array.from(new Set(availableResources.map(resource => resource.moduleName)));
+    const availableModuleNames = new Set(availableResources.map(resource => resource.moduleName));
+    const modules = RESOURCE_GROUPS
+      .map(group => group.moduleName)
+      .filter(moduleName => availableModuleNames.has(moduleName));
     setExpandedResourceModulesInModal(modules);
   };
 
@@ -505,7 +522,14 @@ export function PermissionProfiles() {
   const toggleAssignedResourcesSection = (profileId: string) => {
     setAssignedResourcesSectionOpenByProfile(prev => ({
       ...prev,
-      [profileId]: !(prev[profileId] ?? true)
+      [profileId]: !(prev[profileId] ?? false)
+    }));
+  };
+
+  const toggleAssignedBooksSection = (profileId: string) => {
+    setAssignedBooksSectionOpenByProfile(prev => ({
+      ...prev,
+      [profileId]: !(prev[profileId] ?? false)
     }));
   };
 
@@ -750,20 +774,24 @@ export function PermissionProfiles() {
                     if (!resource) return null;
                     return { resourceId, ...resource };
                   })
-                  .filter((item): item is { resourceId: string; id: string; name: string; moduleName: string } => item !== null)
-                  .sort((a, b) => {
-                    const moduleCompare = a.moduleName.localeCompare(b.moduleName);
-                    if (moduleCompare !== 0) return moduleCompare;
-                    return a.name.localeCompare(b.name);
-                  });
+                  .filter((item): item is { resourceId: string; id: string; name: string; moduleName: string } => item !== null);
                 const profileResourcesByModule = profileResources.reduce<Record<string, Array<{ resourceId: string; id: string; name: string; moduleName: string }>>>((acc, resource) => {
                   if (!acc[resource.moduleName]) acc[resource.moduleName] = [];
                   acc[resource.moduleName].push(resource);
                   return acc;
                 }, {});
-                const profileResourceModuleNames = Object.keys(profileResourcesByModule).sort((a, b) => a.localeCompare(b));
-                const isAssignedResourcesSectionOpen = assignedResourcesSectionOpenByProfile[profile.id] ?? true;
-                const expandedAssignedModules = expandedAssignedResourcesByProfile[profile.id] ?? profileResourceModuleNames;
+                const mappedModuleNames = new Set(Object.keys(profileResourcesByModule));
+                const profileResourceModuleNames = [
+                  ...RESOURCE_GROUPS
+                    .map(group => group.moduleName)
+                    .filter(moduleName => mappedModuleNames.has(moduleName)),
+                  ...Object.keys(profileResourcesByModule)
+                    .filter(moduleName => !RESOURCE_GROUPS.some(group => group.moduleName === moduleName))
+                    .sort((a, b) => a.localeCompare(b))
+                ];
+                const isAssignedBooksSectionOpen = assignedBooksSectionOpenByProfile[profile.id] ?? false;
+                const isAssignedResourcesSectionOpen = assignedResourcesSectionOpenByProfile[profile.id] ?? false;
+                const expandedAssignedModules = expandedAssignedResourcesByProfile[profile.id] ?? [];
 
                 return (
                   <motion.div
@@ -853,117 +881,131 @@ export function PermissionProfiles() {
                           className="overflow-hidden"
                         >
                           <div className="bg-[#f8f9fb] border-t border-[#e1e4e8] px-6 py-4">
-                            <div className="flex items-center justify-between mb-4">
-                              <h4 className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
-                                Libros del perfil ({profile.bookPermissions.length})
-                              </h4>
-                              {!isReadonlyProfilesView ? (
+                            <div className="border border-[#d1d5db] rounded-xl overflow-hidden bg-white">
+                              <div className="flex items-center justify-between px-4 py-3 border-b border-[#e5e7eb] bg-[#f9fafb]">
                                 <button
-                                  onClick={() => openAddBooksModal(profile.id, profile.name)}
-                                  className="px-3 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 text-sm"
-                                  style={{ fontWeight: 500 }}
+                                  type="button"
+                                  onClick={() => toggleAssignedBooksSection(profile.id)}
+                                  className="flex-1 flex items-center justify-between text-left"
                                 >
-                                  <Plus className="w-4 h-4" />
-                                  Agregar Libro
+                                  <h4 style={{ fontWeight: 700, color: '#1f2937' }}>
+                                    Libros Asignados ({profile.bookPermissions.length})
+                                  </h4>
+                                  {isAssignedBooksSectionOpen ? (
+                                    <ChevronDown className="w-5 h-5 text-[#6b7280]" />
+                                  ) : (
+                                    <ChevronRight className="w-5 h-5 text-[#6b7280]" />
+                                  )}
                                 </button>
-                              ) : (
-                                <span className="text-xs text-[#6b7280]">Solo lectura</span>
-                              )}
-                            </div>
+                                {!isReadonlyProfilesView ? (
+                                  <button
+                                    onClick={() => openAddBooksModal(profile.id, profile.name)}
+                                    className="ml-3 px-3 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 text-sm"
+                                    style={{ fontWeight: 500 }}
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                    Agregar Libro
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-[#6b7280]">Solo lectura</span>
+                                )}
+                              </div>
 
-                            {/* Table Header */}
-                            <div className={`grid gap-6 px-4 py-3 mb-2 bg-[#f8f9fb] rounded-lg ${
-                              isReadonlyProfilesView ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]'
-                            }`}>
-                              <div className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
-                                Libro
-                              </div>
-                              <div className="flex flex-col items-center gap-1">
-                                <button
-                                  onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'read')}
-                                  disabled={isReadonlyProfilesView}
-                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
-                                  title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
-                                >
-                                  {getPermissionCheckboxState(profile.id, 'read') === 'all' ? (
-                                    <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
-                                  ) : getPermissionCheckboxState(profile.id, 'read') === 'some' ? (
-                                    <MinusSquare className="w-4 h-4 text-[#4f46e5]" />
-                                  ) : (
-                                    <Square className="w-4 h-4 text-[#9ca3af]" />
-                                  )}
-                                  <span className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
-                                    Lectura
-                                  </span>
-                                </button>
-                              </div>
-                              <div className="flex flex-col items-center gap-1">
-                                <button
-                                  onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'draft')}
-                                  disabled={isReadonlyProfilesView}
-                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
-                                  title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
-                                >
-                                  {getPermissionCheckboxState(profile.id, 'draft') === 'all' ? (
-                                    <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
-                                  ) : getPermissionCheckboxState(profile.id, 'draft') === 'some' ? (
-                                    <MinusSquare className="w-4 h-4 text-[#4f46e5]" />
-                                  ) : (
-                                    <Square className="w-4 h-4 text-[#9ca3af]" />
-                                  )}
-                                  <span className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
-                                    Asistente
-                                  </span>
-                                </button>
-                              </div>
-                              <div className="flex flex-col items-center gap-1">
-                                <button
-                                  onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'write')}
-                                  disabled={isReadonlyProfilesView}
-                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
-                                  title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
-                                >
-                                  {getPermissionCheckboxState(profile.id, 'write') === 'all' ? (
-                                    <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
-                                  ) : getPermissionCheckboxState(profile.id, 'write') === 'some' ? (
-                                    <MinusSquare className="w-4 h-4 text-[#4f46e5]" />
-                                  ) : (
-                                    <Square className="w-4 h-4 text-[#9ca3af]" />
-                                  )}
-                                  <span className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
-                                    Escritura
-                                  </span>
-                                </button>
-                              </div>
-                              <div className="flex flex-col items-center gap-1">
-                                <button
-                                  onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'acknowledge')}
-                                  disabled={isReadonlyProfilesView}
-                                  className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
-                                  title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
-                                >
-                                  {getPermissionCheckboxState(profile.id, 'acknowledge') === 'all' ? (
-                                    <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
-                                  ) : getPermissionCheckboxState(profile.id, 'acknowledge') === 'some' ? (
-                                    <MinusSquare className="w-4 h-4 text-[#4f46e5]" />
-                                  ) : (
-                                    <Square className="w-4 h-4 text-[#9ca3af]" />
-                                  )}
-                                  <span className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
-                                    Toma Conoc.
-                                  </span>
-                                </button>
-                              </div>
-                              {!isReadonlyProfilesView && (
-                                <div className="text-sm text-center" style={{ fontWeight: 600, color: '#374151' }}>
-                                  Acciones
-                                </div>
-                              )}
-                            </div>
+                              {isAssignedBooksSectionOpen && (
+                                <div className="p-4 border-t border-[#e5e7eb] bg-[#f8f9fb]">
+                                  {/* Table Header */}
+                                  <div className={`grid gap-6 px-4 py-3 mb-2 bg-[#f8f9fb] rounded-lg ${
+                                    isReadonlyProfilesView ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]'
+                                  }`}>
+                                    <div className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                      Libro
+                                    </div>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <button
+                                        onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'read')}
+                                        disabled={isReadonlyProfilesView}
+                                        className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
+                                        title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
+                                      >
+                                        {getPermissionCheckboxState(profile.id, 'read') === 'all' ? (
+                                          <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
+                                        ) : getPermissionCheckboxState(profile.id, 'read') === 'some' ? (
+                                          <MinusSquare className="w-4 h-4 text-[#4f46e5]" />
+                                        ) : (
+                                          <Square className="w-4 h-4 text-[#9ca3af]" />
+                                        )}
+                                        <span className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                          Lectura
+                                        </span>
+                                      </button>
+                                    </div>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <button
+                                        onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'draft')}
+                                        disabled={isReadonlyProfilesView}
+                                        className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
+                                        title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
+                                      >
+                                        {getPermissionCheckboxState(profile.id, 'draft') === 'all' ? (
+                                          <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
+                                        ) : getPermissionCheckboxState(profile.id, 'draft') === 'some' ? (
+                                          <MinusSquare className="w-4 h-4 text-[#4f46e5]" />
+                                        ) : (
+                                          <Square className="w-4 h-4 text-[#9ca3af]" />
+                                        )}
+                                        <span className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                          Asistente
+                                        </span>
+                                      </button>
+                                    </div>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <button
+                                        onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'write')}
+                                        disabled={isReadonlyProfilesView}
+                                        className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
+                                        title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
+                                      >
+                                        {getPermissionCheckboxState(profile.id, 'write') === 'all' ? (
+                                          <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
+                                        ) : getPermissionCheckboxState(profile.id, 'write') === 'some' ? (
+                                          <MinusSquare className="w-4 h-4 text-[#4f46e5]" />
+                                        ) : (
+                                          <Square className="w-4 h-4 text-[#9ca3af]" />
+                                        )}
+                                        <span className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                          Escritura
+                                        </span>
+                                      </button>
+                                    </div>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <button
+                                        onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'acknowledge')}
+                                        disabled={isReadonlyProfilesView}
+                                        className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
+                                        title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
+                                      >
+                                        {getPermissionCheckboxState(profile.id, 'acknowledge') === 'all' ? (
+                                          <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
+                                        ) : getPermissionCheckboxState(profile.id, 'acknowledge') === 'some' ? (
+                                          <MinusSquare className="w-4 h-4 text-[#4f46e5]" />
+                                        ) : (
+                                          <Square className="w-4 h-4 text-[#9ca3af]" />
+                                        )}
+                                        <span className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
+                                          Toma Conoc.
+                                        </span>
+                                      </button>
+                                    </div>
+                                    {!isReadonlyProfilesView && (
+                                      <div className="text-sm text-center" style={{ fontWeight: 600, color: '#374151' }}>
+                                        Acciones
+                                      </div>
+                                    )}
+                                  </div>
 
-                            {/* Book Rows */}
-                            <div className="space-y-2">
-                              {profile.bookPermissions.map((book, bookIndex) => (
+                                  {/* Book Rows */}
+                                  <div className="space-y-2">
+                                    {profile.bookPermissions.map((book, bookIndex) => (
                                 <motion.div
                                   key={book.bookId}
                                   initial={{ opacity: 0, x: -10 }}
@@ -1045,7 +1087,10 @@ export function PermissionProfiles() {
                                     </div>
                                   )}
                                 </motion.div>
-                              ))}
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             <div className="mt-6 border border-[#d1d5db] rounded-xl overflow-hidden bg-white">
@@ -1494,7 +1539,15 @@ export function PermissionProfiles() {
                     acc[resource.moduleName].push(resource);
                     return acc;
                   }, {});
-                  const moduleNames = Object.keys(resourcesByModule).sort((a, b) => a.localeCompare(b));
+                  const mappedModuleNames = new Set(Object.keys(resourcesByModule));
+                  const moduleNames = [
+                    ...RESOURCE_GROUPS
+                      .map(group => group.moduleName)
+                      .filter(moduleName => mappedModuleNames.has(moduleName)),
+                    ...Object.keys(resourcesByModule)
+                      .filter(moduleName => !RESOURCE_GROUPS.some(group => group.moduleName === moduleName))
+                      .sort((a, b) => a.localeCompare(b))
+                  ];
                   if (availableResources.length === 0) {
                     return (
                       <div className="text-center py-8">
