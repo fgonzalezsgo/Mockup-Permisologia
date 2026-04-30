@@ -51,10 +51,13 @@ interface UserProfile {
   name: string;
   run: string;
   email: string;
+  permissionExpiryDate?: string;
   avatar: string;
   avatarColor: string;
   profileId?: string;
   profileName?: string;
+  profileIds?: string[];
+  profileNames?: string[];
   group: string;
   role: string;
   bookPermissions: BookPermission[];
@@ -529,7 +532,7 @@ const DEFAULT_RESOURCE_PROFILES: ResourceProfileTemplate[] = [
   { id: 'rp-controller', name: 'Controller', permissionIds: [] }
 ];
 
-type UserResourceContext = Pick<UserProfile, 'profileId' | 'profileName' | 'group' | 'role'>;
+type UserResourceContext = Pick<UserProfile, 'profileId' | 'profileName' | 'profileIds' | 'profileNames' | 'group' | 'role'>;
 
 const buildResourceList = (resourceIds: string[]): UserResourceAccess[] => {
   const catalogById = new Map(RESOURCE_CATALOG.map(resource => [resource.resourceId, resource]));
@@ -574,18 +577,33 @@ const buildResourcesFromResourceProfiles = (
 };
 
 const getDefaultResourcesForUser = (user: UserResourceContext): UserResourceAccess[] => {
-  if (user.profileId && RESOURCE_PROFILE_BY_PERMISSION_PROFILE[user.profileId]) {
-    return buildResourceList(RESOURCE_PROFILE_BY_PERMISSION_PROFILE[user.profileId]);
+  const selectedProfileIds = (user.profileIds && user.profileIds.length > 0)
+    ? user.profileIds
+    : user.profileId
+      ? [user.profileId]
+      : [];
+
+  if (selectedProfileIds.length > 0) {
+    const profileResourceIds = selectedProfileIds.flatMap(profileId => RESOURCE_PROFILE_BY_PERMISSION_PROFILE[profileId] || []);
+    if (profileResourceIds.length > 0) {
+      return buildResourceList(profileResourceIds);
+    }
   }
 
-  const profileName = (user.profileName || '').toLowerCase();
-  if (profileName.includes('admin')) {
+  const selectedProfileNames = (user.profileNames && user.profileNames.length > 0)
+    ? user.profileNames
+    : user.profileName
+      ? [user.profileName]
+      : [];
+  const normalizedNames = selectedProfileNames.map(name => name.toLowerCase());
+
+  if (normalizedNames.some(name => name.includes('admin'))) {
     return [...RESOURCE_CATALOG];
   }
-  if (profileName.includes('consultor')) {
+  if (normalizedNames.some(name => name.includes('consultor'))) {
     return buildResourceList(RESOURCE_PROFILE_BY_PERMISSION_PROFILE['4']);
   }
-  if (profileName.includes('visualizador')) {
+  if (normalizedNames.some(name => name.includes('visualizador'))) {
     return buildResourceList(RESOURCE_PROFILE_BY_PERMISSION_PROFILE['6']);
   }
   return [];
@@ -593,6 +611,16 @@ const getDefaultResourcesForUser = (user: UserResourceContext): UserResourceAcce
 
 const ensureUserResources = (user: UserProfile): UserProfile => ({
   ...user,
+  profileIds: (user.profileIds && user.profileIds.length > 0)
+    ? user.profileIds
+    : user.profileId
+      ? [user.profileId]
+      : [],
+  profileNames: (user.profileNames && user.profileNames.length > 0)
+    ? user.profileNames
+    : user.profileName
+      ? [user.profileName]
+      : [],
   resourceProfileIds: user.resourceProfileIds || [],
   resourcePermissions: (user.resourcePermissions && user.resourcePermissions.length > 0)
     ? user.resourcePermissions
@@ -684,8 +712,9 @@ export function UserPermissions() {
   const [editForm, setEditForm] = useState({
     group: '',
     role: '',
-    profileId: '',
-    profileName: '',
+    profileIds: [] as string[],
+    profileNames: [] as string[],
+    permissionExpiryDate: '',
     resourceProfileIds: [] as string[]
   });
   const [editSelectedRoles, setEditSelectedRoles] = useState<string[]>([]);
@@ -694,16 +723,26 @@ export function UserPermissions() {
   const [editRoleSearch, setEditRoleSearch] = useState('');
   const [isEditResourceProfilesDropdownOpen, setIsEditResourceProfilesDropdownOpen] = useState(false);
   const [editResourceProfilesSearch, setEditResourceProfilesSearch] = useState('');
+  const [isEditProfilesDropdownOpen, setIsEditProfilesDropdownOpen] = useState(false);
+  const [editProfilesSearch, setEditProfilesSearch] = useState('');
+  const [editProfilesWarning, setEditProfilesWarning] = useState('');
   const editRolesDropdownRef = useRef<HTMLDivElement | null>(null);
   const editResourceProfilesDropdownRef = useRef<HTMLDivElement | null>(null);
+  const editProfilesDropdownRef = useRef<HTMLDivElement | null>(null);
   const [quickCreateForm, setQuickCreateForm] = useState({
     run: '',
     name: '',
     email: '',
     group: '',
     role: '',
-    profileId: ''
+    profileIds: [] as string[],
+    profileNames: [] as string[],
+    permissionExpiryDate: ''
   });
+  const [isQuickProfilesDropdownOpen, setIsQuickProfilesDropdownOpen] = useState(false);
+  const [quickProfilesSearch, setQuickProfilesSearch] = useState('');
+  const [quickProfilesWarning, setQuickProfilesWarning] = useState('');
+  const quickProfilesDropdownRef = useRef<HTMLDivElement | null>(null);
   const [addBooksModal, setAddBooksModal] = useState<{ userId: string; userName: string } | null>(null);
   const [selectedBooksToAdd, setSelectedBooksToAdd] = useState<string[]>([]);
   const [addResourcesModal, setAddResourcesModal] = useState<{ userId: string; userName: string } | null>(null);
@@ -721,7 +760,7 @@ export function UserPermissions() {
   const [bulkPermissionUsersDropdownOpen, setBulkPermissionUsersDropdownOpen] = useState(false);
   const [bulkPermissionBooksDropdownOpen, setBulkPermissionBooksDropdownOpen] = useState(false);
   const [bulkPermissionMassAction, setBulkPermissionMassAction] = useState<'add' | 'remove'>('add');
-  const [bulkPermissionMassSelectedPermissions, setBulkPermissionMassSelectedPermissions] = useState<Array<'read' | 'draft' | 'write'>>([]);
+  const [bulkPermissionMassSelectedPermission, setBulkPermissionMassSelectedPermission] = useState<HierarchyPermission | ''>('');
   const bulkPermissionUsersDropdownRef = useRef<HTMLDivElement | null>(null);
   const bulkPermissionBooksDropdownRef = useRef<HTMLDivElement | null>(null);
   const [copyPermissionsModal, setCopyPermissionsModal] = useState<{ sourceUserId: string; sourceUserName: string } | null>(null);
@@ -757,15 +796,39 @@ export function UserPermissions() {
     const profileById = new Map(profileData.map(profile => [profile.id, profile]));
     const bookNameById = new Map(bookData.map(book => [book.id, book.name]));
     const catalogBookIds = new Set(bookData.map(book => book.id));
+    const toLevel = (permissions: PermissionSet) => {
+      if (permissions.write) return 2;
+      if (permissions.draft) return 1;
+      if (permissions.read) return 0;
+      return -1;
+    };
+    const fromLevel = (level: number, acknowledge: boolean): PermissionSet => ({
+      read: level >= 0,
+      draft: level >= 1,
+      write: level >= 2,
+      acknowledge
+    });
 
     return inputUsers.map(user => {
-      const profile = user.profileId ? profileById.get(user.profileId) : undefined;
+      const selectedProfileIds = (user.profileIds && user.profileIds.length > 0)
+        ? user.profileIds
+        : user.profileId
+          ? [user.profileId]
+          : [];
+      const selectedProfiles = selectedProfileIds
+        .map(profileId => profileById.get(profileId))
+        .filter((profile): profile is ProfileTemplate => !!profile);
+      const selectedProfileNames = selectedProfiles.map(profile => profile.name);
 
-      if (!profile) {
+      if (selectedProfiles.length === 0) {
         const resourcesFromProfiles = buildResourcesFromResourceProfiles(user.resourceProfileIds || [], resourceProfileData);
         const hasSelectedResourceProfiles = (user.resourceProfileIds || []).length > 0;
         return {
           ...user,
+          profileId: '',
+          profileName: '',
+          profileIds: [],
+          profileNames: [],
           resourceProfileIds: user.resourceProfileIds || [],
           resourcePermissions: hasSelectedResourceProfiles
             ? resourcesFromProfiles
@@ -786,21 +849,35 @@ export function UserPermissions() {
       }
 
       const userBooksById = new Map(user.bookPermissions.map(book => [book.bookId, book]));
-      const profileBooks = profile.bookPermissions.map(book => {
-        const existing = userBooksById.get(book.bookId);
-        const bookName = bookNameById.get(book.bookId) || existing?.bookName || `Libro ${book.bookId}`;
-
-        return {
-          bookId: book.bookId,
-          bookName,
-          permissions: sanitizePermissionsForBook(book.bookId, bookName, { ...book.permissions }),
-          disabled: existing?.disabled,
-          isCustom: false
-        };
+      const profileBooksById = new Map<string, BookPermission>();
+      selectedProfiles.forEach(profile => {
+        profile.bookPermissions.forEach(book => {
+          const existing = userBooksById.get(book.bookId);
+          const bookName = bookNameById.get(book.bookId) || existing?.bookName || `Libro ${book.bookId}`;
+          const normalized = sanitizePermissionsForBook(book.bookId, bookName, { ...book.permissions });
+          const current = profileBooksById.get(book.bookId);
+          if (!current) {
+            profileBooksById.set(book.bookId, {
+              bookId: book.bookId,
+              bookName,
+              permissions: normalized,
+              disabled: existing?.disabled,
+              isCustom: false
+            });
+            return;
+          }
+          const mergedLevel = Math.max(toLevel(current.permissions), toLevel(normalized));
+          profileBooksById.set(book.bookId, {
+            ...current,
+            permissions: fromLevel(mergedLevel, current.permissions.acknowledge || normalized.acknowledge)
+          });
+        });
       });
+      const profileBooks = Array.from(profileBooksById.values());
+      const profileBookIds = new Set(profileBooks.map(book => book.bookId));
 
       const extraBooks = user.bookPermissions
-        .filter(book => !profile.bookPermissions.some(profileBook => profileBook.bookId === book.bookId))
+        .filter(book => !profileBookIds.has(book.bookId))
         .filter(book => catalogBookIds.has(book.bookId))
         .map(book => {
           const bookName = bookNameById.get(book.bookId) || book.bookName;
@@ -816,13 +893,22 @@ export function UserPermissions() {
       const hasSelectedResourceProfiles = (user.resourceProfileIds || []).length > 0;
       return {
         ...user,
-        profileName: profile.name,
+        profileId: selectedProfileIds[0] || '',
+        profileName: selectedProfileNames.join(', '),
+        profileIds: selectedProfileIds,
+        profileNames: selectedProfileNames,
         resourceProfileIds: user.resourceProfileIds || [],
         resourcePermissions: hasSelectedResourceProfiles
           ? resourcesFromProfiles
           : (user.resourcePermissions && user.resourcePermissions.length > 0)
             ? user.resourcePermissions
-            : getDefaultResourcesForUser({ ...user, profileName: profile.name }),
+            : getDefaultResourcesForUser({
+                ...user,
+                profileId: selectedProfileIds[0] || '',
+                profileName: selectedProfileNames.join(', '),
+                profileIds: selectedProfileIds,
+                profileNames: selectedProfileNames
+              }),
         bookPermissions: [...profileBooks, ...extraBooks]
       };
     });
@@ -910,20 +996,91 @@ export function UserPermissions() {
     );
   };
 
+  const getSelectedPermissionProfileIds = (user: UserProfile) =>
+    (user.profileIds && user.profileIds.length > 0)
+      ? user.profileIds
+      : user.profileId
+        ? [user.profileId]
+        : [];
+
+  const resolveSelectedProfiles = (profileIds: string[]) =>
+    profileIds
+      .map(profileId => profilesCatalog.find(profile => profile.id === profileId))
+      .filter((profile): profile is ProfileTemplate => !!profile);
+
+  const normalizeProfileLabel = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  const getPermissionProfileFamily = (profileName: string): 'mandante' | 'consultor' | null => {
+    const normalized = normalizeProfileLabel(profileName);
+    if (normalized === 'administrador mandante' || normalized === 'administrador mandante subrogante') return 'mandante';
+    if (normalized === 'consultor' || normalized === 'consultor subrogante') return 'consultor';
+    return null;
+  };
+
+  const hasForbiddenPermissionProfileMix = (profileIds: string[]) => {
+    const families = resolveSelectedProfiles(profileIds)
+      .map(profile => getPermissionProfileFamily(profile.name))
+      .filter((family): family is 'mandante' | 'consultor' => !!family);
+    return families.includes('mandante') && families.includes('consultor');
+  };
+
+  const togglePermissionProfileWithValidation = (
+    currentProfileIds: string[],
+    profileId: string
+  ) => {
+    const alreadySelected = currentProfileIds.includes(profileId);
+    if (alreadySelected) {
+      return {
+        profileIds: currentProfileIds.filter(id => id !== profileId),
+        warning: ''
+      };
+    }
+
+    const nextProfileIds = [...currentProfileIds, profileId];
+    if (hasForbiddenPermissionProfileMix(nextProfileIds)) {
+      return {
+        profileIds: currentProfileIds,
+        warning: 'No se puede combinar un Perfil Mandante con un Perfil Consultor.'
+      };
+    }
+
+    return {
+      profileIds: nextProfileIds,
+      warning: ''
+    };
+  };
+
   const openEditModal = (user: UserProfile) => {
     const parsedRoles = parseRolesFromValue(user.role);
+    const selectedProfileIds = (user.profileIds && user.profileIds.length > 0)
+      ? user.profileIds
+      : user.profileId
+        ? [user.profileId]
+        : [];
+    const selectedProfileNames = selectedProfileIds
+      .map(profileId => profilesCatalog.find(profile => profile.id === profileId)?.name)
+      .filter((name): name is string => !!name);
     setEditingUser(user.id);
     setEditForm({
       group: user.group,
       role: parsedRoles.join(', '),
-      profileId: user.profileId || '',
-      profileName: user.profileName || '',
+      profileIds: selectedProfileIds,
+      profileNames: selectedProfileNames,
+      permissionExpiryDate: user.permissionExpiryDate || '',
       resourceProfileIds: user.resourceProfileIds || []
     });
     setEditSelectedRoles(parsedRoles);
     setEditRoleSearch('');
+    setEditProfilesSearch('');
+    setEditProfilesWarning('');
     setEditResourceProfilesSearch('');
     setIsEditRolesDropdownOpen(false);
+    setIsEditProfilesDropdownOpen(false);
     setIsEditResourceProfilesDropdownOpen(false);
   };
 
@@ -958,8 +1115,13 @@ export function UserPermissions() {
       email: '',
       group: '',
       role: '',
-      profileId: ''
+      profileIds: [],
+      profileNames: [],
+      permissionExpiryDate: ''
     });
+    setQuickProfilesSearch('');
+    setQuickProfilesWarning('');
+    setIsQuickProfilesDropdownOpen(false);
     setIsQuickCreateUserModalOpen(true);
   };
 
@@ -971,8 +1133,13 @@ export function UserPermissions() {
       email: '',
       group: '',
       role: '',
-      profileId: ''
+      profileIds: [],
+      profileNames: [],
+      permissionExpiryDate: ''
     });
+    setQuickProfilesSearch('');
+    setQuickProfilesWarning('');
+    setIsQuickProfilesDropdownOpen(false);
   };
 
   const createSingleUser = () => {
@@ -990,7 +1157,10 @@ export function UserPermissions() {
       return;
     }
 
-    const selectedProfile = profilesCatalog.find(profile => profile.id === quickCreateForm.profileId);
+    const selectedProfiles = quickCreateForm.profileIds
+      .map(profileId => profilesCatalog.find(profile => profile.id === profileId))
+      .filter((profile): profile is ProfileTemplate => !!profile);
+    const selectedProfileNames = selectedProfiles.map(profile => profile.name);
     const bookNameById = new Map(booksCatalog.map(book => [book.id, book.name]));
     const avatarColorPalette = ['#4f46e5', '#2563eb', '#0ea5e9', '#0891b2', '#0f766e', '#059669', '#ca8a04', '#b45309'];
 
@@ -999,26 +1169,47 @@ export function UserPermissions() {
       return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
     }, 0) + 1);
 
-    const profileBooks = (selectedProfile?.bookPermissions || []).map(book => ({
-      bookId: book.bookId,
-      bookName: bookNameById.get(book.bookId) || `Libro ${book.bookId}`,
-      permissions: sanitizePermissionsForBook(
-        book.bookId,
-        bookNameById.get(book.bookId) || `Libro ${book.bookId}`,
-        { ...book.permissions }
-      ),
-      isCustom: false
-    }));
+    const profileBooksMap = new Map<string, BookPermission>();
+    selectedProfiles.forEach(profile => {
+      profile.bookPermissions.forEach(book => {
+        const bookName = bookNameById.get(book.bookId) || `Libro ${book.bookId}`;
+        const normalized = sanitizePermissionsForBook(book.bookId, bookName, normalizePermissionsByHierarchy({ ...book.permissions }));
+        const existing = profileBooksMap.get(book.bookId);
+        if (!existing) {
+          profileBooksMap.set(book.bookId, {
+            bookId: book.bookId,
+            bookName,
+            permissions: normalized,
+            isCustom: false
+          });
+          return;
+        }
+        const existingLevel = getPermissionHierarchyLevel(normalizePermissionsByHierarchy(existing.permissions));
+        const incomingLevel = getPermissionHierarchyLevel(normalizePermissionsByHierarchy(normalized));
+        const mergedLevel = Math.max(existingLevel, incomingLevel);
+        profileBooksMap.set(book.bookId, {
+          ...existing,
+          permissions: buildPermissionsFromHierarchyLevel(
+            mergedLevel,
+            existing.permissions.acknowledge || normalized.acknowledge
+          )
+        });
+      });
+    });
+    const profileBooks = Array.from(profileBooksMap.values());
 
     const newUser: UserProfile = {
       id: nextId,
       name: quickCreateForm.name.trim(),
       run: quickCreateForm.run.trim(),
       email: quickCreateForm.email.trim(),
+      permissionExpiryDate: quickCreateForm.permissionExpiryDate || undefined,
       avatar: quickCreateForm.name.trim().charAt(0).toUpperCase() || 'U',
       avatarColor: avatarColorPalette[users.length % avatarColorPalette.length],
-      profileId: quickCreateForm.profileId,
-      profileName: selectedProfile?.name || '',
+      profileId: quickCreateForm.profileIds[0] || '',
+      profileName: selectedProfileNames.join(', '),
+      profileIds: quickCreateForm.profileIds,
+      profileNames: selectedProfileNames,
       group: quickCreateForm.group,
       role: quickCreateForm.role.trim(),
       hasCustomPermissions: false,
@@ -1026,8 +1217,10 @@ export function UserPermissions() {
       bookPermissions: profileBooks,
       resourceProfileIds: [],
       resourcePermissions: getDefaultResourcesForUser({
-        profileId: quickCreateForm.profileId,
-        profileName: selectedProfile?.name || '',
+        profileId: quickCreateForm.profileIds[0] || '',
+        profileName: selectedProfileNames.join(', '),
+        profileIds: quickCreateForm.profileIds,
+        profileNames: selectedProfileNames,
         group: quickCreateForm.group,
         role: quickCreateForm.role.trim()
       })
@@ -1070,8 +1263,14 @@ export function UserPermissions() {
       if (editRolesDropdownRef.current && !editRolesDropdownRef.current.contains(target)) {
         setIsEditRolesDropdownOpen(false);
       }
+      if (editProfilesDropdownRef.current && !editProfilesDropdownRef.current.contains(target)) {
+        setIsEditProfilesDropdownOpen(false);
+      }
       if (editResourceProfilesDropdownRef.current && !editResourceProfilesDropdownRef.current.contains(target)) {
         setIsEditResourceProfilesDropdownOpen(false);
+      }
+      if (quickProfilesDropdownRef.current && !quickProfilesDropdownRef.current.contains(target)) {
+        setIsQuickProfilesDropdownOpen(false);
       }
     };
 
@@ -1441,14 +1640,18 @@ export function UserPermissions() {
     setEditForm({
       group: '',
       role: '',
-      profileId: '',
-      profileName: '',
+      profileIds: [],
+      profileNames: [],
+      permissionExpiryDate: '',
       resourceProfileIds: []
     });
     setEditSelectedRoles([]);
     setEditRoleSearch('');
+    setEditProfilesSearch('');
+    setEditProfilesWarning('');
     setEditResourceProfilesSearch('');
     setIsEditRolesDropdownOpen(false);
+    setIsEditProfilesDropdownOpen(false);
     setIsEditResourceProfilesDropdownOpen(false);
   };
 
@@ -1521,14 +1724,69 @@ export function UserPermissions() {
     }));
   };
 
+  const toggleQuickPermissionProfile = (profileId: string) => {
+    const result = togglePermissionProfileWithValidation(quickCreateForm.profileIds, profileId);
+    const selectedProfiles = resolveSelectedProfiles(result.profileIds);
+    setQuickCreateForm(prev => ({
+      ...prev,
+      profileIds: result.profileIds,
+      profileNames: selectedProfiles.map(profile => profile.name)
+    }));
+    setQuickProfilesWarning(result.warning);
+  };
+
+  const toggleEditPermissionProfile = (profileId: string) => {
+    const result = togglePermissionProfileWithValidation(editForm.profileIds, profileId);
+    const selectedProfiles = resolveSelectedProfiles(result.profileIds);
+    setEditForm(prev => ({
+      ...prev,
+      profileIds: result.profileIds,
+      profileNames: selectedProfiles.map(profile => profile.name)
+    }));
+    setEditProfilesWarning(result.warning);
+  };
+
   const saveUserChanges = () => {
     if (!editingUser) return;
     const selectedRolesValue = editSelectedRoles.join(', ');
 
-    const selectedProfile = profilesCatalog.find(profile => profile.id === editForm.profileId);
+    const selectedProfiles = editForm.profileIds
+      .map(profileId => profilesCatalog.find(profile => profile.id === profileId))
+      .filter((profile): profile is ProfileTemplate => !!profile);
+    const selectedProfileNames = selectedProfiles.map(profile => profile.name);
     const bookNameById = new Map(booksCatalog.map(book => [book.id, book.name]));
     const selectedResourcesFromProfiles = buildResourcesFromResourceProfiles(editForm.resourceProfileIds, resourceProfilesCatalog);
     const hasSelectedResourceProfiles = editForm.resourceProfileIds.length > 0;
+    const mergedProfileBooks = (() => {
+      const map = new Map<string, BookPermission>();
+      selectedProfiles.forEach(profile => {
+        profile.bookPermissions.forEach(book => {
+          const bookName = bookNameById.get(book.bookId) || `Libro ${book.bookId}`;
+          const normalized = sanitizePermissionsForBook(book.bookId, bookName, normalizePermissionsByHierarchy({ ...book.permissions }));
+          const existing = map.get(book.bookId);
+          if (!existing) {
+            map.set(book.bookId, {
+              bookId: book.bookId,
+              bookName,
+              permissions: normalized,
+              isCustom: false
+            });
+            return;
+          }
+          const existingLevel = getPermissionHierarchyLevel(normalizePermissionsByHierarchy(existing.permissions));
+          const incomingLevel = getPermissionHierarchyLevel(normalizePermissionsByHierarchy(normalized));
+          const mergedLevel = Math.max(existingLevel, incomingLevel);
+          map.set(book.bookId, {
+            ...existing,
+            permissions: buildPermissionsFromHierarchyLevel(
+              mergedLevel,
+              existing.permissions.acknowledge || normalized.acknowledge
+            )
+          });
+        });
+      });
+      return Array.from(map.values());
+    })();
 
     setUsers(prev => prev.map(user =>
       user.id === editingUser
@@ -1536,28 +1794,24 @@ export function UserPermissions() {
             ...user,
             group: editForm.group,
             role: selectedRolesValue,
-            profileId: editForm.profileId,
-            profileName: editForm.profileName,
+            permissionExpiryDate: editForm.permissionExpiryDate || undefined,
+            profileId: editForm.profileIds[0] || '',
+            profileName: selectedProfileNames.join(', '),
+            profileIds: editForm.profileIds,
+            profileNames: selectedProfileNames,
             resourceProfileIds: editForm.resourceProfileIds,
             resourcePermissions: hasSelectedResourceProfiles
               ? selectedResourcesFromProfiles
               : getDefaultResourcesForUser({
-                  profileId: editForm.profileId,
-                  profileName: editForm.profileName,
+                  profileId: editForm.profileIds[0] || '',
+                  profileName: selectedProfileNames.join(', '),
+                  profileIds: editForm.profileIds,
+                  profileNames: selectedProfileNames,
                   group: editForm.group,
                   role: selectedRolesValue
                 }),
-            bookPermissions: selectedProfile
-              ? selectedProfile.bookPermissions.map(book => ({
-                  bookId: book.bookId,
-                  bookName: bookNameById.get(book.bookId) || `Libro ${book.bookId}`,
-                  permissions: sanitizePermissionsForBook(
-                    book.bookId,
-                    bookNameById.get(book.bookId) || `Libro ${book.bookId}`,
-                    { ...book.permissions }
-                  ),
-                  isCustom: false
-                }))
+            bookPermissions: mergedProfileBooks.length > 0
+              ? mergedProfileBooks
               : user.bookPermissions
           }
         : user
@@ -1566,12 +1820,29 @@ export function UserPermissions() {
     closeEditModal();
   };
 
-  const getProfileBookPermissions = (profileId: string | undefined, bookId: string) => {
-    const profile = profilesCatalog.find(p => p.id === profileId);
-    const permissions = profile?.bookPermissions.find(book => book.bookId === bookId)?.permissions;
-    if (!permissions) return undefined;
+  const getProfileBookPermissions = (profileIds: string[], bookId: string) => {
+    let merged: PermissionSet | undefined;
     const bookName = booksCatalog.find(book => book.id === bookId)?.name || `Libro ${bookId}`;
-    return sanitizePermissionsForBook(bookId, bookName, permissions);
+
+    profileIds.forEach(profileId => {
+      const profile = profilesCatalog.find(p => p.id === profileId);
+      const permissions = profile?.bookPermissions.find(book => book.bookId === bookId)?.permissions;
+      if (!permissions) return;
+      const normalized = sanitizePermissionsForBook(bookId, bookName, normalizePermissionsByHierarchy(permissions));
+
+      if (!merged) {
+        merged = normalized;
+        return;
+      }
+
+      const mergedLevel = Math.max(
+        getPermissionHierarchyLevel(normalizePermissionsByHierarchy(merged)),
+        getPermissionHierarchyLevel(normalizePermissionsByHierarchy(normalized))
+      );
+      merged = buildPermissionsFromHierarchyLevel(mergedLevel, merged.acknowledge || normalized.acknowledge);
+    });
+
+    return merged;
   };
 
   const hasSamePermissions = (a: PermissionSet, b: PermissionSet) => (
@@ -1582,24 +1853,23 @@ export function UserPermissions() {
   );
 
   const isBookPermissionException = (user: UserProfile, book: BookPermission) => {
-    if (!user.profileId) return !!book.isCustom;
+    const selectedProfileIds = getSelectedPermissionProfileIds(user);
+    if (selectedProfileIds.length === 0) return !!book.isCustom;
 
-    const profilePermissions = getProfileBookPermissions(user.profileId, book.bookId);
+    const profilePermissions = getProfileBookPermissions(selectedProfileIds, book.bookId);
     if (!profilePermissions) return true;
 
     return !hasSamePermissions(book.permissions, profilePermissions);
   };
 
   const hasUserPermissionExceptions = (user: UserProfile) => {
-    if (!user.profileId) return user.bookPermissions.some(book => !!book.isCustom);
+    const selectedProfiles = resolveSelectedProfiles(getSelectedPermissionProfileIds(user));
+    if (selectedProfiles.length === 0) return user.bookPermissions.some(book => !!book.isCustom);
 
-    const profile = profilesCatalog.find(p => p.id === user.profileId);
-    if (!profile) return false;
-
-    const profileBookIds = new Set(profile.bookPermissions.map(book => book.bookId));
+    const profileBookIds = new Set(selectedProfiles.flatMap(profile => profile.bookPermissions.map(book => book.bookId)));
     const userBookIds = new Set(user.bookPermissions.map(book => book.bookId));
 
-    const hasMissingOrExtraBooks = profile.bookPermissions.some(book => !userBookIds.has(book.bookId)) ||
+    const hasMissingOrExtraBooks = Array.from(profileBookIds).some(bookId => !userBookIds.has(bookId)) ||
       user.bookPermissions.some(book => !profileBookIds.has(book.bookId));
 
     if (hasMissingOrExtraBooks) return true;
@@ -2196,7 +2466,7 @@ export function UserPermissions() {
   };
 
   const getBasePermissionsForBook = (user: UserProfile, book: BookPermission): PermissionSet => {
-    const base = getProfileBookPermissions(user.profileId, book.bookId);
+    const base = getProfileBookPermissions(getSelectedPermissionProfileIds(user), book.bookId);
     if (!base) {
       return { read: false, draft: false, write: false, acknowledge: false };
     }
@@ -2271,10 +2541,9 @@ export function UserPermissions() {
     !isBookAccessVisuallyDisabled(user, book) && normalizePermissionsByHierarchy(book.permissions)[permissionType];
 
   const isProfileBookForUser = (user: UserProfile, bookId: string) => {
-    if (!user.profileId) return false;
-    const profile = profilesCatalog.find(p => p.id === user.profileId);
-    if (!profile) return false;
-    return profile.bookPermissions.some(book => book.bookId === bookId);
+    const selectedProfiles = resolveSelectedProfiles(getSelectedPermissionProfileIds(user));
+    if (selectedProfiles.length === 0) return false;
+    return selectedProfiles.some(profile => profile.bookPermissions.some(book => book.bookId === bookId));
   };
 
   const canEditBookPermissions = (user: UserProfile, book: BookPermission) =>
@@ -2442,6 +2711,25 @@ export function UserPermissions() {
     return buildPermissionsFromHierarchyLevel(finalLevel, current.acknowledge || base.acknowledge);
   };
 
+  const applySetHierarchyPermission = (
+    currentPermissions: PermissionSet,
+    basePermissions: PermissionSet,
+    permission: HierarchyPermission,
+    book: BookPermission
+  ) => {
+    const current = normalizePermissionsByHierarchy(currentPermissions);
+    const base = normalizePermissionsByHierarchy(basePermissions);
+    const hasProfilePermissions = !!(base.read || base.draft || base.write || base.acknowledge);
+    if (hasProfilePermissions) return current;
+    const targetLevel = getHierarchyLevelByPermission(permission);
+    const baseLevel = getPermissionHierarchyLevel(base);
+    const adjustedTargetLevel = isLibroObraMaestro(book.bookId, book.bookName)
+      ? Math.min(targetLevel, 1)
+      : targetLevel;
+    const finalLevel = Math.max(adjustedTargetLevel, baseLevel);
+    return buildPermissionsFromHierarchyLevel(finalLevel, current.acknowledge || base.acknowledge);
+  };
+
   const applyRemoveHierarchyPermission = (
     currentPermissions: PermissionSet,
     basePermissions: PermissionSet,
@@ -2468,7 +2756,7 @@ export function UserPermissions() {
     setBulkPermissionUserSearch('');
     setBulkPermissionBookSearch('');
     setBulkPermissionMassAction('add');
-    setBulkPermissionMassSelectedPermissions([]);
+    setBulkPermissionMassSelectedPermission('');
     setBulkPermissionUsersDropdownOpen(false);
     setBulkPermissionBooksDropdownOpen(false);
     setIsBulkPermissionEditorOpen(true);
@@ -2479,7 +2767,7 @@ export function UserPermissions() {
     setBulkPermissionDraftUsers(null);
     setBulkPermissionSelectedUserIds([]);
     setBulkPermissionSelectedBookIds([]);
-    setBulkPermissionMassSelectedPermissions([]);
+    setBulkPermissionMassSelectedPermission('');
   };
 
   const applyBulkPermissionEditorChanges = () => {
@@ -2500,17 +2788,9 @@ export function UserPermissions() {
     );
   };
 
-  const toggleBulkPermissionMassPermission = (permission: HierarchyPermission) => {
-    setBulkPermissionMassSelectedPermissions(prev =>
-      prev.includes(permission)
-        ? prev.filter(item => item !== permission)
-        : [...prev, permission]
-    );
-  };
-
   const applyMassPermissionsToSelection = () => {
     if (!bulkPermissionDraftUsers || bulkPermissionSelectedUserIds.length === 0 || bulkPermissionSelectedBookIds.length === 0) return;
-    if (bulkPermissionMassSelectedPermissions.length === 0) return;
+    if (!bulkPermissionMassSelectedPermission) return;
 
     const targetUsers = new Set(bulkPermissionSelectedUserIds);
     const targetBooks = new Set(bulkPermissionSelectedBookIds);
@@ -2530,11 +2810,9 @@ export function UserPermissions() {
           const basePermissions = getBasePermissionsForBook(user, draftBook);
           let nextPermissions = normalizePermissionsByHierarchy(draftBook.permissions);
 
-          bulkPermissionMassSelectedPermissions.forEach(permission => {
-            nextPermissions = bulkPermissionMassAction === 'add'
-              ? applyAddHierarchyPermission(nextPermissions, basePermissions, permission, draftBook)
-              : applyRemoveHierarchyPermission(nextPermissions, basePermissions, permission);
-          });
+          nextPermissions = bulkPermissionMassAction === 'add'
+            ? applySetHierarchyPermission(nextPermissions, basePermissions, bulkPermissionMassSelectedPermission, draftBook)
+            : applyRemoveHierarchyPermission(nextPermissions, basePermissions, bulkPermissionMassSelectedPermission);
 
           const updatedBook: BookPermission = {
             ...draftBook,
@@ -2691,7 +2969,8 @@ export function UserPermissions() {
       );
     const matchesGroup = groupFilters.length === 0 || groupFilters.includes(user.group);
     const matchesRole = roleFilters.length === 0 || roleFilters.includes(user.role);
-    const matchesProfile = profileFilters.length === 0 || (!!user.profileId && profileFilters.includes(user.profileId));
+    const userProfileIds = getSelectedPermissionProfileIds(user);
+    const matchesProfile = profileFilters.length === 0 || userProfileIds.some(profileId => profileFilters.includes(profileId));
     const matchesBook = bookFilters.length === 0 || user.bookPermissions.some(book => bookFilters.includes(book.bookId));
 
     const booksForPermissionCheck = bookFilters.length === 0
@@ -2845,6 +3124,14 @@ export function UserPermissions() {
     filteredEditResourceProfiles.length > 0 &&
     filteredEditResourceProfiles.every(profile => editForm.resourceProfileIds.includes(profile.id));
   const profileOptions = profilesCatalog.map(profile => ({ value: profile.id, label: profile.name }));
+  const normalizedQuickProfilesSearch = quickProfilesSearch.trim().toLowerCase();
+  const filteredQuickPermissionProfiles = profilesCatalog.filter(profile =>
+    profile.name.toLowerCase().includes(normalizedQuickProfilesSearch)
+  );
+  const normalizedEditProfilesSearch = editProfilesSearch.trim().toLowerCase();
+  const filteredEditPermissionProfiles = profilesCatalog.filter(profile =>
+    profile.name.toLowerCase().includes(normalizedEditProfilesSearch)
+  );
   const normalizedQuickCreateRun = quickCreateForm.run.trim().toLowerCase();
   const quickCreateRunExists = normalizedQuickCreateRun.length > 0 &&
     users.some(user => user.run.trim().toLowerCase() === normalizedQuickCreateRun);
@@ -2928,8 +3215,13 @@ export function UserPermissions() {
     email: user.email,
     group: user.group,
     role: user.role,
+    permissionExpiryDate: user.permissionExpiryDate || '',
     profileId: user.profileId || '',
     profileName: user.profileName || '',
+    profileIds: [...((user.profileIds && user.profileIds.length > 0) ? user.profileIds : (user.profileId ? [user.profileId] : []))]
+      .sort((a, b) => a.localeCompare(b)),
+    profileNames: [...((user.profileNames && user.profileNames.length > 0) ? user.profileNames : (user.profileName ? [user.profileName] : []))]
+      .sort((a, b) => a.localeCompare(b)),
     disabled: !!user.disabled,
     resourceProfileIds: [...(user.resourceProfileIds || [])].sort((a, b) => a.localeCompare(b)),
     resourcePermissions: [...(user.resourcePermissions || [])]
@@ -3051,6 +3343,27 @@ export function UserPermissions() {
 
   const previewAssignmentsCount = allChangedAssignments.reduce((sum, assignment) => sum + assignment.changeUnits, 0);
 
+  const totalUsersCount = users.length;
+  const disabledUsersCount = users.filter(user => !!user.disabled).length;
+  const activeUsersCount = totalUsersCount - disabledUsersCount;
+  const usersWithCustomPermissionsCount = users.filter(hasUserPermissionExceptions).length;
+  const activeFilterCount =
+    (searchQuery.trim().length > 0 ? 1 : 0) +
+    groupFilters.length +
+    roleFilters.length +
+    profileFilters.length +
+    bookFilters.length +
+    permissionFilters.length;
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setGroupFilters([]);
+    setRoleFilters([]);
+    setProfileFilters([]);
+    setBookFilters([]);
+    setPermissionFilters([]);
+  };
+
   const handleSaveChanges = () => {
     localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
     window.dispatchEvent(new Event(USERS_UPDATED_EVENT));
@@ -3063,21 +3376,129 @@ export function UserPermissions() {
     <div className="bg-[#f8f9fb] min-h-screen">
       {/* Header */}
       <div className="bg-white border-b border-[#e1e4e8]">
-        <div className="max-w-7xl mx-auto px-8 py-8">
-          <div className="flex items-center justify-between mb-6">
+        <div className="max-w-7xl mx-auto px-8 py-7">
+          <div className="flex items-end justify-between gap-4 flex-wrap">
             <div>
               <h1 className="text-3xl mb-2" style={{ fontWeight: 600, color: '#1f2937' }}>
                 Permisos por Usuario
               </h1>
               <p className="text-[#6b7280]">
-                Vista detallada de permisos asignados a cada usuario del sistema
+                Vista consolidada de usuarios, permisos y estado de configuración
               </p>
+            </div>
+            <div className="text-sm text-[#64748b]">
+              Mostrando <span style={{ fontWeight: 700, color: '#0f172a' }}>{filteredUsers.length}</span> de{' '}
+              <span style={{ fontWeight: 700, color: '#0f172a' }}>{users.length}</span> usuarios
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="max-w-7xl mx-auto px-8 pt-8 pb-28">
+        <div className="bg-white rounded-xl border border-[#e1e4e8] overflow-hidden mb-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 divide-y lg:divide-y-0 lg:divide-x divide-[#eef2f7]">
+            <div className="px-4 py-3">
+              <div className="text-[11px] uppercase tracking-wide text-[#64748b]" style={{ fontWeight: 700 }}>
+                Usuarios totales
+              </div>
+              <div className="text-3xl mt-1 text-[#0f172a]" style={{ fontWeight: 600 }}>
+                {totalUsersCount}
+              </div>
+            </div>
+
+            <div className="px-4 py-3">
+              <div className="text-[11px] uppercase tracking-wide text-[#64748b]" style={{ fontWeight: 700 }}>
+                Usuarios activos
+              </div>
+              <div className="text-3xl mt-1 text-[#0f172a]" style={{ fontWeight: 600 }}>
+                {activeUsersCount}
+              </div>
+            </div>
+
+            <div className="px-4 py-3">
+              <div className="text-[11px] uppercase tracking-wide text-[#64748b]" style={{ fontWeight: 700 }}>
+                Usuarios deshabilitados
+              </div>
+              <div className="text-3xl mt-1 text-[#334155]" style={{ fontWeight: 600 }}>
+                {disabledUsersCount}
+              </div>
+            </div>
+
+            <div className="px-4 py-3">
+              <div className="text-[11px] uppercase tracking-wide text-[#64748b]" style={{ fontWeight: 700 }}>
+                Permisos personalizados
+              </div>
+              <div className="flex items-center gap-1.5 text-3xl mt-1 text-[#d97706]" style={{ fontWeight: 600 }}>
+                <AlertCircle className="w-5 h-5" />
+                {usersWithCustomPermissionsCount}
+              </div>
+            </div>
+
+            <div className="px-4 py-3">
+              <div className="text-[11px] uppercase tracking-wide text-[#64748b]" style={{ fontWeight: 700 }}>
+                Cambios pendientes
+              </div>
+              <div className="text-3xl mt-1 text-[#2563eb]" style={{ fontWeight: 600 }}>
+                {changedUsers.length}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-[#e1e4e8] p-4 mb-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2 px-3 py-2 bg-[#f8fafc] border border-[#dbe3ee] rounded-lg">
+                <label className="text-sm text-[#334155]" style={{ fontWeight: 600 }}>
+                  Vista
+                </label>
+                <select
+                  value={viewMode}
+                  onChange={(e) => setViewMode(e.target.value as 'users' | 'books' | 'resources')}
+                  className="px-2.5 py-1.5 rounded-md border border-[#d1d5db] text-sm text-[#1f2937] bg-white focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                >
+                  <option value="users">Usuarios</option>
+                  <option value="books">Libros</option>
+                  <option value="resources">Recursos</option>
+                </select>
+              </div>
+              <div className="text-sm text-[#334155]">
+                Filtros activos: <span style={{ fontWeight: 700 }}>{activeFilterCount}</span>
+              </div>
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={clearAllFilters}
+                  className="text-sm text-[#0f766e] hover:text-[#0f766e]/80"
+                  style={{ fontWeight: 600 }}
+                >
+                  Borrar filtros
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={openBulkPermissionEditorModal}
+                className="px-3.5 py-2 rounded-lg bg-white text-[#2563eb] border border-[#bfdbfe] hover:bg-[#eff6ff] transition-colors shadow-sm flex items-center gap-2"
+                style={{ fontWeight: 600 }}
+              >
+                <Edit2 className="w-4 h-4" />
+                Editar permisos
+              </button>
+              <button
+                onClick={openQuickCreateUserModal}
+                className="px-3.5 py-2 rounded-lg bg-[#f97316] text-white border border-[#fb923c] hover:bg-[#ea580c] transition-colors shadow-sm flex items-center gap-2"
+                style={{ fontWeight: 600 }}
+              >
+                <UserPlus className="w-4 h-4" />
+                Crear usuario
+              </button>
             </div>
           </div>
 
-          {/* Search and Filters */}
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex-1 relative">
+          <div className="mt-4">
+            <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#9ca3af]" />
               <input
                 type="text"
@@ -3087,157 +3508,52 @@ export function UserPermissions() {
                 className="w-full pl-12 pr-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
               />
             </div>
-
-            <div className="flex items-start gap-4 flex-wrap w-full">
-              <MultiSelectFilter
-                label="Grupos"
-                allLabel="Todos los grupos"
-                options={[
-                  { value: 'Mandante', label: 'Mandante' },
-                  { value: 'Contratista', label: 'Contratista' }
-                ]}
-                selectedValues={groupFilters}
-                onChange={setGroupFilters}
-              />
-
-              <MultiSelectFilter
-                label="Cargos"
-                allLabel="Todos los cargos"
-                options={roleOptions.map(role => ({ value: role, label: role }))}
-                selectedValues={roleFilters}
-                onChange={setRoleFilters}
-              />
-
-              <MultiSelectFilter
-                label="Perfiles"
-                allLabel="Todos los perfiles"
-                options={profileOptions}
-                selectedValues={profileFilters}
-                onChange={setProfileFilters}
-              />
-
-              <MultiSelectFilter
-                label="Libros"
-                allLabel="Todos los libros"
-                options={bookOptions}
-                selectedValues={bookFilters}
-                onChange={setBookFilters}
-              />
-
-              <MultiSelectFilter
-                label="Permisos"
-                allLabel="Todos los permisos"
-                options={permissionOptions}
-                selectedValues={permissionFilters}
-                onChange={(values) => setPermissionFilters(values as Array<keyof PermissionSet>)}
-              />
-            </div>
           </div>
 
-          <div className="mt-4">
-            <div className="flex items-center justify-center gap-3">
-              <div className="flex items-center gap-2 px-3 py-2 bg-white border border-[#c7d2fe] rounded-lg shadow-sm">
-                <label className="text-sm text-[#4f46e5]" style={{ fontWeight: 600 }}>
-                  Vista
-                </label>
-                <select
-                  value={viewMode}
-                  onChange={(e) => setViewMode(e.target.value as 'users' | 'books' | 'resources')}
-                  className="px-3 py-1.5 rounded-md border border-[#d1d5db] text-sm text-[#1f2937] bg-white focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
-                >
-                  <option value="users">Listado de usuarios</option>
-                  <option value="books">Listado de libros</option>
-                  <option value="resources">Listado de recursos</option>
-                </select>
-              </div>
-              <button
-                onClick={openCreateUserModal}
-                className="px-4 py-2.5 rounded-lg bg-white text-[#4f46e5] border border-[#c7d2fe] hover:bg-[#eef2ff] transition-colors shadow-sm flex items-center gap-2"
-                style={{ fontWeight: 600 }}
-              >
-                <UserPlus className="w-4 h-4" />
-                Asignar Usuario
-              </button>
-              <button
-                onClick={openBulkPermissionEditorModal}
-                className="px-4 py-2.5 rounded-lg bg-white text-[#2563eb] border border-[#bfdbfe] hover:bg-[#eff6ff] transition-colors shadow-sm flex items-center gap-2"
-                style={{ fontWeight: 600 }}
-              >
-                <Edit2 className="w-4 h-4" />
-                Editar Permisos
-              </button>
-              <button
-                onClick={openQuickCreateUserModal}
-                className="px-4 py-2.5 rounded-lg bg-white text-[#4f46e5] border border-[#c7d2fe] hover:bg-[#eef2ff] transition-colors shadow-sm flex items-center gap-2"
-                style={{ fontWeight: 600 }}
-              >
-                <UserPlus className="w-4 h-4" />
-                Crear Usuario
-              </button>
-            </div>
+          <div className="mt-4 flex items-start gap-4 flex-wrap">
+            <MultiSelectFilter
+              label="Grupos"
+              allLabel="Todos los grupos"
+              options={[
+                { value: 'Mandante', label: 'Mandante' },
+                { value: 'Contratista', label: 'Contratista' }
+              ]}
+              selectedValues={groupFilters}
+              onChange={setGroupFilters}
+            />
+
+            <MultiSelectFilter
+              label="Cargos"
+              allLabel="Todos los cargos"
+              options={roleOptions.map(role => ({ value: role, label: role }))}
+              selectedValues={roleFilters}
+              onChange={setRoleFilters}
+            />
+
+            <MultiSelectFilter
+              label="Perfiles"
+              allLabel="Todos los perfiles"
+              options={profileOptions}
+              selectedValues={profileFilters}
+              onChange={setProfileFilters}
+            />
+
+            <MultiSelectFilter
+              label="Libros"
+              allLabel="Todos los libros"
+              options={bookOptions}
+              selectedValues={bookFilters}
+              onChange={setBookFilters}
+            />
+
+            <MultiSelectFilter
+              label="Permisos"
+              allLabel="Todos los permisos"
+              options={permissionOptions}
+              selectedValues={permissionFilters}
+              onChange={(values) => setPermissionFilters(values as Array<keyof PermissionSet>)}
+            />
           </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-8 pt-8 pb-28">
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-6 mb-8">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-xl border border-[#e1e4e8] p-6"
-          >
-            <div className="text-3xl mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
-              {users.length}
-            </div>
-            <div className="text-sm text-[#6b7280]">
-              Usuarios totales
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 }}
-            className="bg-white rounded-xl border border-[#e1e4e8] p-6"
-          >
-            <div className="text-3xl mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
-              {users.filter(u => u.group === 'Mandante').length}
-            </div>
-            <div className="text-sm text-[#6b7280]">
-              Grupo Mandante
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="bg-white rounded-xl border border-[#e1e4e8] p-6"
-          >
-            <div className="text-3xl mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
-              {users.filter(u => u.group === 'Contratista').length}
-            </div>
-            <div className="text-sm text-[#6b7280]">
-              Grupo Contratista
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="bg-white rounded-xl border border-[#e1e4e8] p-6"
-          >
-            <div className="flex items-center gap-2 text-3xl mb-1" style={{ fontWeight: 600, color: '#f59e0b' }}>
-              <AlertCircle className="w-7 h-7" />
-              {users.filter(hasUserPermissionExceptions).length}
-            </div>
-            <div className="text-sm text-[#6b7280]">
-              Usuarios con permisos modificados
-            </div>
-          </motion.div>
         </div>
 
         {/* Users List */}
@@ -3715,6 +4031,9 @@ export function UserPermissions() {
                         ) : (
                           <span className="text-xs text-[#94a3b8] italic">Sin perfil</span>
                         )}
+                        <span className="text-xs text-[#6b7280]">
+                          Caducidad: {user.permissionExpiryDate || 'Sin fecha'}
+                        </span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -4458,25 +4777,25 @@ export function UserPermissions() {
                             onChange={(e) => setBulkPermissionMassAction(e.target.value as 'add' | 'remove')}
                             className="px-3 py-2 rounded-md border border-slate-300 text-sm"
                           >
-                            <option value="add">Agregar</option>
-                            <option value="remove">Eliminar</option>
+                            <option value="add">Asignar permiso</option>
+                            <option value="remove">Quitar permiso</option>
                           </select>
-                          <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-slate-300 bg-white">
+                          <select
+                            value={bulkPermissionMassSelectedPermission}
+                            onChange={(e) => setBulkPermissionMassSelectedPermission(e.target.value as HierarchyPermission | '')}
+                            className="px-3 py-2 rounded-md border border-slate-300 text-sm min-w-[170px]"
+                          >
+                            <option value="">Seleccionar permiso</option>
                             {hierarchyOrder.map(permission => (
-                              <label key={`mass-${permission}`} className="flex items-center gap-1 text-xs text-slate-700">
-                                <input
-                                  type="checkbox"
-                                  checked={bulkPermissionMassSelectedPermissions.includes(permission)}
-                                  onChange={() => toggleBulkPermissionMassPermission(permission)}
-                                />
+                              <option key={`mass-option-${permission}`} value={permission}>
                                 {hierarchyPermissionLabels[permission]}
-                              </label>
+                              </option>
                             ))}
-                          </div>
+                          </select>
                           <button
                             type="button"
                             onClick={applyMassPermissionsToSelection}
-                            disabled={bulkPermissionMassSelectedPermissions.length === 0}
+                            disabled={!bulkPermissionMassSelectedPermission}
                             className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             style={{ fontWeight: 600 }}
                           >
@@ -4727,19 +5046,65 @@ export function UserPermissions() {
                   />
                 </div>
 
-                <select
-                  value={quickCreateForm.profileId}
-                  onChange={(e) => setQuickCreateForm(prev => ({ ...prev, profileId: e.target.value }))}
-                  className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
-                  style={{ fontWeight: 500 }}
-                >
-                  <option value="">Sin Perfil</option>
-                  {profilesCatalog.map(profile => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div ref={quickProfilesDropdownRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickProfilesDropdownOpen(prev => !prev)}
+                      className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] flex items-center justify-between"
+                    >
+                      <span className="text-sm text-left" style={{ fontWeight: 500 }}>
+                        {quickCreateForm.profileIds.length === 0
+                          ? 'Sin Perfil'
+                          : `${quickCreateForm.profileIds.length} perfil(es) seleccionado(s)`}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-[#6b7280] transition-transform ${isQuickProfilesDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isQuickProfilesDropdownOpen && (
+                      <div className="absolute bottom-full mb-2 w-full bg-white border border-[#e5e7eb] rounded-lg shadow-xl z-50">
+                        <div className="p-3 border-b border-[#eef2f7]">
+                          <input
+                            type="text"
+                            value={quickProfilesSearch}
+                            onChange={(e) => setQuickProfilesSearch(e.target.value)}
+                            placeholder="Buscar"
+                            className="w-full px-3 py-2 text-sm border border-[#d1d5db] rounded-md focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+                          />
+                        </div>
+                        <div className="max-h-[38vh] overflow-y-auto">
+                          {filteredQuickPermissionProfiles.map(profile => (
+                            <label
+                              key={`quick-profile-${profile.id}`}
+                              className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[#f1f5f9] last:border-b-0 cursor-pointer hover:bg-[#f8fafc]"
+                            >
+                              <span className="text-sm text-[#1f2937]">{profile.name}</span>
+                              <input
+                                type="checkbox"
+                                checked={quickCreateForm.profileIds.includes(profile.id)}
+                                onChange={() => toggleQuickPermissionProfile(profile.id)}
+                              />
+                            </label>
+                          ))}
+                          {filteredQuickPermissionProfiles.length === 0 && (
+                            <div className="px-3 py-3 text-sm text-[#6b7280]">No se encontraron perfiles.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {quickProfilesWarning && (
+                      <p className="text-xs text-[#dc2626] mt-2">{quickProfilesWarning}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <input
+                      type="date"
+                      value={quickCreateForm.permissionExpiryDate}
+                      onChange={(e) => setQuickCreateForm(prev => ({ ...prev, permissionExpiryDate: e.target.value }))}
+                      className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-end gap-4">
@@ -5497,120 +5862,71 @@ export function UserPermissions() {
                 {/* Profile Selector */}
                 <div>
                   <label className="block text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
-                    Perfil de Permisos
+                    Perfiles de Permisos ({editForm.profileIds.length})
                   </label>
-                  <select
-                    value={editForm.profileId}
-                    onChange={(e) => {
-                      const nextProfileId = e.target.value;
-                      if (nextProfileId === editForm.profileId) return;
-
-                      const shouldApply = window.confirm(
-                        'Al cambiar el perfil se restablecerán los permisos del usuario según el nuevo perfil. ¿Desea continuar?'
-                      );
-
-                      if (!shouldApply) return;
-
-                      const selectedProfile = profilesCatalog.find(p => p.id === e.target.value);
-                      setEditForm(prev => ({
-                        ...prev,
-                        profileId: nextProfileId,
-                        profileName: selectedProfile?.name || ''
-                      }));
-                    }}
-                    className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
-                    style={{ fontWeight: 500 }}
-                  >
-                    <option value="">Sin Perfil</option>
-                    {profilesCatalog.map(profile => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div ref={editProfilesDropdownRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditProfilesDropdownOpen(prev => !prev)}
+                      className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] flex items-center justify-between"
+                    >
+                      <span className="text-sm" style={{ fontWeight: 500 }}>
+                        {editForm.profileIds.length === 0
+                          ? 'Sin Perfil'
+                          : `${editForm.profileIds.length} perfil(es) seleccionado(s)`}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-[#6b7280] transition-transform ${isEditProfilesDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isEditProfilesDropdownOpen && (
+                      <div className="absolute bottom-full mb-2 w-full bg-white border border-[#e5e7eb] rounded-lg shadow-xl z-50">
+                        <div className="p-3 border-b border-[#eef2f7]">
+                          <input
+                            type="text"
+                            value={editProfilesSearch}
+                            onChange={(e) => setEditProfilesSearch(e.target.value)}
+                            placeholder="Buscar"
+                            className="w-full px-3 py-2 text-sm border border-[#d1d5db] rounded-md focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+                          />
+                        </div>
+                        <div className="max-h-[38vh] overflow-y-auto">
+                          {filteredEditPermissionProfiles.map(profile => (
+                            <label
+                              key={`edit-permission-profile-${profile.id}`}
+                              className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[#f1f5f9] last:border-b-0 cursor-pointer hover:bg-[#f8fafc]"
+                            >
+                              <span className="text-sm text-[#1f2937]">{profile.name}</span>
+                              <input
+                                type="checkbox"
+                                checked={editForm.profileIds.includes(profile.id)}
+                                onChange={() => toggleEditPermissionProfile(profile.id)}
+                              />
+                            </label>
+                          ))}
+                          {filteredEditPermissionProfiles.length === 0 && (
+                            <div className="px-3 py-3 text-sm text-[#6b7280]">No se encontraron perfiles.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {editProfilesWarning && (
+                    <p className="text-xs text-[#dc2626] mt-2">{editProfilesWarning}</p>
+                  )}
                   <p className="text-xs text-[#6b7280] mt-2">
-                    Sin perfil, el usuario puede agregar cualquier libro y permiso. Si elige un perfil, se aplican permisos base.
+                    Sin perfil, el usuario puede agregar cualquier libro y permiso. Si elige perfiles, se aplican permisos base combinados.
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
-                    Perfiles de Recursos ({editForm.resourceProfileIds.length})
+                    Fecha de caducidad de permisos
                   </label>
-
-                  {resourceProfilesCatalog.length === 0 ? (
-                    <div className="px-4 py-3 text-sm text-[#6b7280] bg-[#f8f9fb] border border-[#e5e7eb] rounded-lg">
-                      No hay perfiles de recursos disponibles.
-                    </div>
-                  ) : (
-                    <div ref={editResourceProfilesDropdownRef} className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setIsEditResourceProfilesDropdownOpen(prev => !prev)}
-                        className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] flex items-center justify-between"
-                      >
-                        <span className="text-sm" style={{ fontWeight: 500 }}>
-                          {editForm.resourceProfileIds.length === 0
-                            ? 'Seleccionar perfiles...'
-                            : `${editForm.resourceProfileIds.length} cargos seleccionados`}
-                        </span>
-                        <ChevronDown className={`w-4 h-4 text-[#6b7280] transition-transform ${isEditResourceProfilesDropdownOpen ? 'rotate-180' : ''}`} />
-                      </button>
-                      {isEditResourceProfilesDropdownOpen && (
-                        <div className="absolute top-full mt-2 w-full bg-white border border-[#e5e7eb] rounded-lg shadow-xl z-50">
-                          <div className="p-3 border-b border-[#eef2f7]">
-                            <input
-                              type="text"
-                              value={editResourceProfilesSearch}
-                              onChange={(e) => setEditResourceProfilesSearch(e.target.value)}
-                              placeholder="Buscar"
-                              className="w-full px-3 py-2 text-sm border border-[#d1d5db] rounded-md focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
-                            />
-                          </div>
-                          <label className="flex items-center gap-2 px-3 py-2 border-b border-[#eef2f7] text-sm text-[#374151] cursor-pointer hover:bg-[#f8fafc]">
-                            <input
-                              type="checkbox"
-                              checked={allFilteredEditResourceProfilesSelected}
-                              onChange={toggleSelectAllFilteredEditResourceProfiles}
-                            />
-                            <span style={{ fontWeight: 600 }}>Seleccionar todos</span>
-                          </label>
-                          <div className="max-h-56 overflow-y-auto">
-                            {filteredEditResourceProfiles.map(profile => {
-                              const checked = editForm.resourceProfileIds.includes(profile.id);
-                              return (
-                                <label
-                                  key={profile.id}
-                                  className="flex items-start justify-between gap-3 px-3 py-2 border-b border-[#f1f5f9] last:border-b-0 cursor-pointer hover:bg-[#f8fafc]"
-                                >
-                                  <div className="flex-1">
-                                    <div className="text-sm text-[#1f2937]" style={{ fontWeight: 600 }}>
-                                      {profile.name}
-                                    </div>
-                                    <div className="text-xs text-[#6b7280] mt-0.5">
-                                      {resolveResourceIdsForProfile(profile).length} recurso(s)
-                                    </div>
-                                  </div>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleEditResourceProfile(profile.id)}
-                                    className="mt-1"
-                                  />
-                                </label>
-                              );
-                            })}
-                            {filteredEditResourceProfiles.length === 0 && (
-                              <div className="px-3 py-3 text-sm text-[#6b7280]">No se encontraron perfiles.</div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <p className="text-xs text-[#6b7280] mt-2">
-                    Puedes seleccionar uno o más perfiles de recursos para este usuario.
-                  </p>
+                  <input
+                    type="date"
+                    value={editForm.permissionExpiryDate}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, permissionExpiryDate: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                  />
                 </div>
               </div>
 
