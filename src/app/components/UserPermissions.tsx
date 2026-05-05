@@ -121,6 +121,20 @@ const DEFAULT_CARGO_OPTIONS = [
   'Topografo/Jefe de topografia'
 ];
 
+const CONSTRUCTION_COMPANIES = [
+  'SalfaCorp',
+  'Besalco',
+  'Socovesa',
+  'Echeverria Izquierdo',
+  'Moller y Perez-Cotapos'
+];
+
+const normalizeCompanyValue = (value: string) => {
+  if (value === 'Mandante') return 'SalfaCorp';
+  if (value === 'Contratista') return 'Besalco';
+  return value;
+};
+
 const parseRolesFromValue = (value: string) =>
   value
     .split(',')
@@ -251,7 +265,7 @@ const mockUsers: UserProfile[] = [
     avatarColor: '#9333ea',
     profileId: '2',
     profileName: 'Administrador Mandante',
-    group: 'Mandante',
+    group: 'SalfaCorp',
     role: 'Administrador Mandante',
     hasCustomPermissions: false,
     bookPermissions: [
@@ -281,7 +295,7 @@ const mockUsers: UserProfile[] = [
     avatarColor: '#6366f1',
     profileId: '4',
     profileName: 'Consultor',
-    group: 'Mandante',
+    group: 'Besalco',
     role: 'Inspector Técnico',
     hasCustomPermissions: false,
     bookPermissions: [
@@ -311,7 +325,7 @@ const mockUsers: UserProfile[] = [
     avatarColor: '#8b5cf6',
     profileId: '4',
     profileName: 'Consultor',
-    group: 'Mandante',
+    group: 'Socovesa',
     role: 'Consultor',
     hasCustomPermissions: true,
     bookPermissions: [
@@ -342,7 +356,7 @@ const mockUsers: UserProfile[] = [
     avatarColor: '#ec4899',
     profileId: '6',
     profileName: 'Visualizador',
-    group: 'Contratista',
+    group: 'Echeverria Izquierdo',
     role: 'Jefe de Proyecto',
     hasCustomPermissions: true,
     bookPermissions: [
@@ -373,7 +387,7 @@ const mockUsers: UserProfile[] = [
     avatarColor: '#14b8a6',
     profileId: '2',
     profileName: 'Administrador Mandante',
-    group: 'Mandante',
+    group: 'Moller y Perez-Cotapos',
     role: 'Coordinador General',
     hasCustomPermissions: false,
     bookPermissions: [
@@ -679,8 +693,16 @@ const loadStoredResourceProfiles = (): ResourceProfileTemplate[] => {
 };
 
 export function UserPermissions() {
-  const [users, setUsers] = useState<UserProfile[]>(() => applyMaestroPermissionRuleToUsers(loadStoredUsers()).map(ensureUserResources));
-  const [savedUsersSnapshot, setSavedUsersSnapshot] = useState<UserProfile[]>(() => applyMaestroPermissionRuleToUsers(loadStoredUsers()).map(ensureUserResources));
+  const [users, setUsers] = useState<UserProfile[]>(() =>
+    applyMaestroPermissionRuleToUsers(loadStoredUsers())
+      .map(user => ({ ...user, group: normalizeCompanyValue(user.group) }))
+      .map(ensureUserResources)
+  );
+  const [savedUsersSnapshot, setSavedUsersSnapshot] = useState<UserProfile[]>(() =>
+    applyMaestroPermissionRuleToUsers(loadStoredUsers())
+      .map(user => ({ ...user, group: normalizeCompanyValue(user.group) }))
+      .map(ensureUserResources)
+  );
   const [profilesCatalog, setProfilesCatalog] = useState<ProfileTemplate[]>(() => loadStoredProfiles());
   const [resourceProfilesCatalog, setResourceProfilesCatalog] = useState<ResourceProfileTemplate[]>(() => loadStoredResourceProfiles());
   const [booksCatalog, setBooksCatalog] = useState<Array<{ id: string; name: string }>>(() => loadStoredBooks());
@@ -779,6 +801,7 @@ export function UserPermissions() {
   const copyResourcesDropdownRef = useRef<HTMLDivElement | null>(null);
   const copyUsersDropdownRef = useRef<HTMLDivElement | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [permissionsSummaryModalUserId, setPermissionsSummaryModalUserId] = useState<string | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
     type: 'delete-user' | 'disable-user' | 'enable-user' | 'remove-book' | 'disable-book' | 'enable-book';
     userId?: string;
@@ -922,8 +945,14 @@ export function UserPermissions() {
       setProfilesCatalog(latestProfiles);
       setBooksCatalog(latestBooks);
       setResourceProfilesCatalog(latestResourceProfiles);
-      setUsers(prev => alignUsersWithSharedConfig(prev, latestProfiles, latestBooks, latestResourceProfiles));
-      setSavedUsersSnapshot(prev => alignUsersWithSharedConfig(prev, latestProfiles, latestBooks, latestResourceProfiles));
+      setUsers(prev =>
+        alignUsersWithSharedConfig(prev, latestProfiles, latestBooks, latestResourceProfiles)
+          .map(user => ({ ...user, group: normalizeCompanyValue(user.group) }))
+      );
+      setSavedUsersSnapshot(prev =>
+        alignUsersWithSharedConfig(prev, latestProfiles, latestBooks, latestResourceProfiles)
+          .map(user => ({ ...user, group: normalizeCompanyValue(user.group) }))
+      );
     };
 
     syncFromSharedConfig();
@@ -1153,7 +1182,7 @@ export function UserPermissions() {
       return;
     }
     if (!quickCreateForm.name.trim() || !quickCreateForm.email.trim() || !quickCreateForm.group || !quickCreateForm.role.trim()) {
-      window.alert('Completa nombre, email, grupo y cargo para continuar.');
+      window.alert('Completa nombre, email, empresa y cargo para continuar.');
       return;
     }
 
@@ -1354,7 +1383,7 @@ export function UserPermissions() {
     if (!draftUser) return;
 
     if (!draftUser.name.trim() || !draftUser.group || !draftUser.role.trim()) {
-      window.alert('Completa nombre, grupo y cargo para continuar.');
+      window.alert('Completa nombre, empresa y cargo para continuar.');
       return;
     }
 
@@ -1415,7 +1444,7 @@ export function UserPermissions() {
 
     const invalidUsers = newUsersDraft.filter(user => !user.name.trim() || !user.run.trim() || !user.group || !user.role.trim());
     if (invalidUsers.length > 0) {
-      window.alert('Hay usuarios pendientes sin datos. Presiona "Crear Especialista" y completa nombre, grupo y cargo.');
+      window.alert('Hay usuarios pendientes sin datos. Presiona "Crear Especialista" y completa nombre, empresa y cargo.');
       return;
     }
 
@@ -3180,6 +3209,23 @@ export function UserPermissions() {
   const bulkPermissionSelectedBooks = bulkPermissionSelectedBookIds
     .map(bookId => booksCatalog.find(book => book.id === bookId) || { id: bookId, name: catalogById.get(bookId) || `Libro ${bookId}` })
     .filter(book => !!book);
+  const permissionsSummaryUser = permissionsSummaryModalUserId
+    ? users.find(user => user.id === permissionsSummaryModalUserId) || null
+    : null;
+  const permissionsSummaryResources = permissionsSummaryUser ? toManagedResourceList(permissionsSummaryUser) : [];
+  const permissionsSummaryResourcesByModule = permissionsSummaryResources.reduce<Record<string, UserResourceAccess[]>>((acc, resource) => {
+    if (!acc[resource.moduleName]) acc[resource.moduleName] = [];
+    acc[resource.moduleName].push(resource);
+    return acc;
+  }, {});
+  const permissionsSummaryResourceModules = [
+    ...RESOURCE_GROUPS
+      .map(group => group.moduleName)
+      .filter(moduleName => permissionsSummaryResourcesByModule[moduleName]?.length),
+    ...Object.keys(permissionsSummaryResourcesByModule)
+      .filter(moduleName => !RESOURCE_GROUPS.some(group => group.moduleName === moduleName))
+      .sort((a, b) => a.localeCompare(b))
+  ];
 
   const toggleSelectAllFilteredBulkPermissionUsers = () => {
     if (allFilteredBulkPermissionUsersSelected) {
@@ -3512,12 +3558,9 @@ export function UserPermissions() {
 
           <div className="mt-4 flex items-start gap-4 flex-wrap">
             <MultiSelectFilter
-              label="Grupos"
-              allLabel="Todos los grupos"
-              options={[
-                { value: 'Mandante', label: 'Mandante' },
-                { value: 'Contratista', label: 'Contratista' }
-              ]}
+              label="Empresas"
+              allLabel="Todas las empresas"
+              options={CONSTRUCTION_COMPANIES.map(company => ({ value: company, label: company }))}
               selectedValues={groupFilters}
               onChange={setGroupFilters}
             />
@@ -3912,7 +3955,7 @@ export function UserPermissions() {
                                 Usuario
                               </div>
                               <div className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
-                                Grupo
+                                Empresa
                               </div>
                               <div className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
                                 Perfil
@@ -4065,6 +4108,10 @@ export function UserPermissions() {
                         <DropdownMenuItem onClick={() => openEditModal(user)}>
                           <Edit2 className="w-4 h-4" />
                           Editar usuario
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setPermissionsSummaryModalUserId(user.id)}>
+                          <Eye className="w-4 h-4" />
+                          Resumen de permisos
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => toggleUserEnabled(user.id)}>
                           {user.disabled ? (
@@ -5033,17 +5080,22 @@ export function UserPermissions() {
                     className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
                     style={{ fontWeight: 500 }}
                   >
-                    <option value="">Seleccionar grupo...</option>
-                    <option value="Mandante">Mandante</option>
-                    <option value="Contratista">Contratista</option>
+                    <option value="">Seleccionar empresa...</option>
+                    {CONSTRUCTION_COMPANIES.map(company => (
+                      <option key={`quick-company-${company}`} value={company}>{company}</option>
+                    ))}
                   </select>
-                  <input
-                    type="text"
+                  <select
                     value={quickCreateForm.role}
                     onChange={(e) => setQuickCreateForm(prev => ({ ...prev, role: e.target.value }))}
-                    placeholder="Cargo"
-                    className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
-                  />
+                    className="w-full px-5 py-4 bg-white border border-[#d1d5db] rounded-2xl text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
+                    style={{ fontWeight: 500 }}
+                  >
+                    <option value="">Seleccionar cargo...</option>
+                    {DEFAULT_CARGO_OPTIONS.map(role => (
+                      <option key={`quick-role-${role}`} value={role}>{role}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -5462,17 +5514,21 @@ export function UserPermissions() {
                             onChange={(e) => updateBulkCreateUser(editingDraft.id, { group: e.target.value })}
                             className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg"
                           >
-                            <option value="">Seleccionar grupo...</option>
-                            <option value="Mandante">Mandante</option>
-                            <option value="Contratista">Contratista</option>
+                            <option value="">Seleccionar empresa...</option>
+                            {CONSTRUCTION_COMPANIES.map(company => (
+                              <option key={`bulk-company-${company}`} value={company}>{company}</option>
+                            ))}
                           </select>
-                          <input
-                            type="text"
+                          <select
                             value={editingDraft.role}
                             onChange={(e) => updateBulkCreateUser(editingDraft.id, { role: e.target.value })}
-                            placeholder="Cargo"
                             className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg"
-                          />
+                          >
+                            <option value="">Seleccionar cargo...</option>
+                            {DEFAULT_CARGO_OPTIONS.map(role => (
+                              <option key={`bulk-role-${role}`} value={role}>{role}</option>
+                            ))}
+                          </select>
                           <select
                             value={editingDraft.profileId}
                             onChange={(e) => {
@@ -5741,7 +5797,7 @@ export function UserPermissions() {
                     Editar Usuario
                   </h3>
                   <p className="text-sm text-[#6b7280]">
-                    Modifica el grupo, cargo y perfil del usuario
+                    Modifica la empresa, cargo y perfil del usuario
                   </p>
                 </div>
               </div>
@@ -5772,10 +5828,10 @@ export function UserPermissions() {
                   ) : null;
                 })()}
 
-                {/* Group Selector */}
+                {/* Company Selector */}
                 <div>
                   <label className="block text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
-                    Grupo
+                    Empresa
                   </label>
                   <select
                     value={editForm.group}
@@ -5783,9 +5839,10 @@ export function UserPermissions() {
                     className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent"
                     style={{ fontWeight: 500 }}
                   >
-                    <option value="">Seleccionar grupo...</option>
-                    <option value="Mandante">Mandante</option>
-                    <option value="Contratista">Contratista</option>
+                    <option value="">Seleccionar empresa...</option>
+                    {CONSTRUCTION_COMPANIES.map(company => (
+                      <option key={`edit-company-${company}`} value={company}>{company}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -6756,6 +6813,145 @@ export function UserPermissions() {
                   >
                     Confirmar copia
                   </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* User Permissions Summary Modal */}
+      <AnimatePresence>
+        {permissionsSummaryUser && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center p-8 z-50"
+            onClick={() => setPermissionsSummaryModalUserId(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl shadow-2xl p-8 max-w-5xl w-full max-h-[88vh] overflow-y-auto"
+            >
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <div className="flex items-start gap-4">
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center text-white"
+                    style={{ backgroundColor: permissionsSummaryUser.avatarColor, fontWeight: 700 }}
+                  >
+                    {permissionsSummaryUser.avatar}
+                  </div>
+                  <div>
+                    <h3 className="text-2xl text-[#1f2937]" style={{ fontWeight: 700 }}>
+                      Resumen general de permisos
+                    </h3>
+                    <p className="text-sm text-[#6b7280] mt-1">
+                      {permissionsSummaryUser.name} · RUN: {permissionsSummaryUser.run}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
+                      <span className="px-2.5 py-1 rounded-full bg-[#eff6ff] text-[#1d4ed8]" style={{ fontWeight: 600 }}>
+                        Empresa: {permissionsSummaryUser.group || '-'}
+                      </span>
+                      <span className="px-2.5 py-1 rounded-full bg-[#f8fafc] text-[#334155]" style={{ fontWeight: 600 }}>
+                        Cargo: {permissionsSummaryUser.role || '-'}
+                      </span>
+                      <span className="px-2.5 py-1 rounded-full bg-[#f5f3ff] text-[#5b21b6]" style={{ fontWeight: 600 }}>
+                        Perfil: {permissionsSummaryUser.profileName || 'Sin perfil'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPermissionsSummaryModalUserId(null)}
+                  className="p-2 rounded-lg hover:bg-[#f3f4f6] transition-colors"
+                  title="Cerrar"
+                >
+                  <X className="w-5 h-5 text-[#6b7280]" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="rounded-xl border border-[#dbeafe] bg-[#eff6ff] p-4">
+                  <div className="text-xs uppercase tracking-wide text-[#1d4ed8]" style={{ fontWeight: 700 }}>
+                    Libros
+                  </div>
+                  <div className="text-3xl text-[#1d4ed8] mt-1" style={{ fontWeight: 700 }}>
+                    {permissionsSummaryUser.bookPermissions.length}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[#cffafe] bg-[#ecfeff] p-4">
+                  <div className="text-xs uppercase tracking-wide text-[#0f766e]" style={{ fontWeight: 700 }}>
+                    Recursos
+                  </div>
+                  <div className="text-3xl text-[#0f766e] mt-1" style={{ fontWeight: 700 }}>
+                    {permissionsSummaryResources.length}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[#ede9fe] bg-[#f5f3ff] p-4">
+                  <div className="text-xs uppercase tracking-wide text-[#6d28d9]" style={{ fontWeight: 700 }}>
+                    Estado usuario
+                  </div>
+                  <div className="text-lg text-[#6d28d9] mt-2" style={{ fontWeight: 700 }}>
+                    {permissionsSummaryUser.disabled ? 'Deshabilitado' : 'Habilitado'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <h4 className="text-lg text-[#1f2937] mb-3" style={{ fontWeight: 700 }}>
+                  Permisos de libros
+                </h4>
+                <div className="rounded-xl border border-[#e5e7eb] overflow-hidden">
+                  <div className="grid grid-cols-[1.5fr_2fr] gap-4 px-4 py-3 bg-[#f8fafc] text-sm text-[#334155]" style={{ fontWeight: 700 }}>
+                    <div>Libro</div>
+                    <div>Permisos</div>
+                  </div>
+                  {permissionsSummaryUser.bookPermissions.length === 0 ? (
+                    <div className="px-4 py-4 text-sm text-[#64748b]">Sin libros asignados.</div>
+                  ) : (
+                    permissionsSummaryUser.bookPermissions.map(book => (
+                      <div key={`summary-book-${permissionsSummaryUser.id}-${book.bookId}`} className="grid grid-cols-[1.5fr_2fr] gap-4 px-4 py-3 border-t border-[#f1f5f9] text-sm">
+                        <div className="text-[#1f2937]" style={{ fontWeight: 600 }}>{book.bookName}</div>
+                        <div className="text-[#475569]">{formatPermissionSummary(book.permissions)}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-lg text-[#1f2937] mb-3" style={{ fontWeight: 700 }}>
+                  Permisos de recursos
+                </h4>
+                <div className="rounded-xl border border-[#e5e7eb] overflow-hidden">
+                  {permissionsSummaryResources.length === 0 ? (
+                    <div className="px-4 py-4 text-sm text-[#64748b]">Sin recursos asignados.</div>
+                  ) : (
+                    permissionsSummaryResourceModules.map(moduleName => (
+                      <div key={`summary-module-${permissionsSummaryUser.id}-${moduleName}`} className="border-t border-[#f1f5f9] first:border-t-0">
+                        <div className="px-4 py-3 bg-[#f8fafc] text-sm text-[#0f172a]" style={{ fontWeight: 700 }}>
+                          {moduleName}
+                        </div>
+                        <div className="px-4 py-3">
+                          <div className="flex flex-wrap gap-2">
+                            {(permissionsSummaryResourcesByModule[moduleName] || []).map(resource => (
+                              <span
+                                key={`summary-resource-${permissionsSummaryUser.id}-${resource.resourceId}`}
+                                className="px-2.5 py-1 rounded-full text-xs bg-[#eef2ff] text-[#4338ca]"
+                                style={{ fontWeight: 600 }}
+                              >
+                                {resource.resourceName}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </motion.div>

@@ -5,10 +5,9 @@ import { UserPermissions } from './UserPermissions';
 import { PermissionProfiles } from './PermissionProfiles';
 import { AuditHistory } from './AuditHistory';
 import { DraftEditor } from './DraftEditor';
-import { ResourceProfiles } from './ResourceProfiles';
 
 export function PermissionSystem() {
-  const [activeTab, setActiveTab] = useState<'users' | 'profiles' | 'resource_profiles' | 'drafts' | 'audit'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'profiles' | 'drafts' | 'audit'>('users');
 
   return (
     <div className="min-h-screen bg-[#f8f9fb]">
@@ -59,24 +58,6 @@ export function PermissionSystem() {
               <UserCog className="w-4 h-4" />
               Perfiles de Permisos
               {activeTab === 'profiles' && (
-                <motion.div
-                  layoutId="activeMainTab"
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#4f46e5]"
-                />
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('resource_profiles')}
-              className={`
-                relative px-1 py-4 transition-colors flex items-center gap-2
-                ${activeTab === 'resource_profiles' ? 'text-[#4f46e5]' : 'text-[#6b7280] hover:text-[#1f2937]'}
-              `}
-              style={{ fontWeight: 500 }}
-            >
-              <Shield className="w-4 h-4" />
-              Perfiles de Recursos
-              {activeTab === 'resource_profiles' && (
                 <motion.div
                   layoutId="activeMainTab"
                   className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#4f46e5]"
@@ -144,16 +125,6 @@ export function PermissionSystem() {
             transition={{ duration: 0.3 }}
           >
             <PermissionProfiles />
-          </motion.div>
-        ) : activeTab === 'resource_profiles' ? (
-          <motion.div
-            key="resource_profiles"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
-          >
-            <ResourceProfiles />
           </motion.div>
         ) : activeTab === 'drafts' ? (
           <motion.div

@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Settings, Lock, Building2, Globe, Plus, UserPlus, Check, X, Users, Star, Edit2, Trash2, Save } from 'lucide-react';
+import { Settings, Lock, Building2, Plus, UserPlus, Check, X, Users, Star, Edit2, Trash2, Save } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-type CollaboratorOption = 'private' | 'public' | 'custom' | string;
+type CollaboratorOption = 'private' | 'custom' | string;
 
 interface Collaborator {
   id: string;
@@ -48,8 +48,6 @@ export function DraftEditor() {
   const getCollaboratorLabel = () => {
     if (collaboratorOption === 'private') {
       return '🔒 Solo Yo (Privado)';
-    } else if (collaboratorOption === 'public') {
-      return '🌐 Todo el Contrato (Público antes de emitir)';
     } else if (collaboratorOption === 'custom') {
       return `👥 ${selectedCollaborators.length} colaborador${selectedCollaborators.length !== 1 ? 'es' : ''} seleccionado${selectedCollaborators.length !== 1 ? 's' : ''}`;
     } else {
@@ -410,7 +408,6 @@ export function DraftEditor() {
                     style={{ fontWeight: 500 }}
                   >
                     <option value="private">🔒 Solo Yo (Privado)</option>
-                    <option value="public">🌐 Todo el Contrato (Público antes de emitir)</option>
                     {savedFilters.length > 0 && <option disabled>───────────────</option>}
                     {savedFilters.map(filter => (
                       <option key={filter.id} value={filter.id}>

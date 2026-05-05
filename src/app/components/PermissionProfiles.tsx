@@ -169,6 +169,30 @@ const mockProfiles: Profile[] = [
         permissions: { read: true, draft: true, write: false, acknowledge: true }
       }
     ]
+  },
+  {
+    id: '6',
+    name: 'Visualizador',
+    description: 'Perfil de solo visualización del contrato',
+    color: '#94a3b8',
+    usersCount: 1,
+    bookPermissions: [
+      {
+        bookId: '1',
+        bookName: 'Libro de Obra Maestro',
+        permissions: { read: true, draft: false, write: false, acknowledge: false }
+      },
+      {
+        bookId: '2',
+        bookName: 'Libro de Comunicaciones',
+        permissions: { read: true, draft: false, write: false, acknowledge: false }
+      },
+      {
+        bookId: '3',
+        bookName: 'Libro de Especialidades',
+        permissions: { read: true, draft: false, write: false, acknowledge: false }
+      }
+    ]
   }
 ];
 
@@ -178,6 +202,7 @@ const USERS_STORAGE_KEY = 'permission_users_v1';
 const USERS_UPDATED_EVENT = 'permission-users-updated';
 const VISUALIZER_ASSIGNMENTS_KEY = 'permission_visualizer_assignments_v1';
 const PERMISSIONS_CONFIG_UPDATED_EVENT = 'permissions-config-updated';
+const PROTECTED_PROFILE_IDS = new Set(['1', '2', '3', '4', '5', '6']);
 const DEFAULT_BOOKS: BookCatalogItem[] = [
   { id: '1', name: 'Libro de Obra Maestro' },
   { id: '2', name: 'Libro de Comunicaciones' },
@@ -187,6 +212,14 @@ const DEFAULT_BOOKS: BookCatalogItem[] = [
 ];
 
 const RESOURCE_CATALOG: ResourceCatalogItem[] = [
+  { id: 'datos_contratos', name: 'Datos Contratos (CRUD)', moduleName: 'Modificar datos y permisos' },
+  { id: 'datos_contratistas', name: 'Datos Contratistas (CRUD)', moduleName: 'Modificar datos y permisos' },
+  { id: 'datos_solvencia', name: 'Datos Solvencia (AABB)', moduleName: 'Modificar datos y permisos' },
+  { id: 'edicion_roles', name: 'Edición de Roles (CRUD)', moduleName: 'Modificar datos y permisos' },
+  { id: 'tipo_libro', name: 'Tipo de Libro (CRUD)', moduleName: 'Modificar datos y permisos' },
+  { id: 'ver_detalle', name: 'Ver Detalle', moduleName: 'Otros recursos del contrato' },
+  { id: 'descargar_contrato', name: 'Descargar Contrato', moduleName: 'Otros recursos del contrato' },
+  { id: 'aperturar_libros', name: 'Aperturar Libros', moduleName: 'Otros recursos del contrato' },
   { id: 'solicitudes_contratos', name: 'Solicitudes de Contratos', moduleName: 'Contratos' },
   { id: 'procesos_batch', name: 'Procesos Batch', moduleName: 'Contratos' },
   { id: 'firmas', name: 'Firmas', moduleName: 'Contratos' },
@@ -208,22 +241,64 @@ const RESOURCE_CATALOG: ResourceCatalogItem[] = [
 ];
 
 const RESOURCE_GROUPS: ResourceGroupView[] = [
+  { id: 'modificar_datos_permisos', name: 'Modificar datos y permisos', moduleName: 'Modificar datos y permisos' },
+  { id: 'otros_recursos_contrato', name: 'Otros recursos del contrato', moduleName: 'Otros recursos del contrato' },
   { id: 'contratos', name: 'Contratos', moduleName: 'Contratos' },
   { id: 'cobranzas', name: 'Cobranzas', moduleName: 'Cobranzas' },
   { id: 'centro_ayuda', name: 'Centro de Ayuda', moduleName: 'Centro de Ayuda' },
   { id: 'superadministrador', name: 'SuperAdministrador', moduleName: 'SuperAdministrador' }
 ];
 
-const normalizeProfiles = (input: Profile[]): Profile[] =>
-  input
-    .filter(profile =>
-      profile.id !== '6' &&
-      profile.name.toLowerCase() !== 'visualizador'
-    )
-    .map(profile => ({
+const BASE_PROFILE_RESOURCE_IDS_BY_ID: Record<string, string[]> = {
+  '1': [
+    'datos_contratos',
+    'datos_contratistas',
+    'datos_solvencia',
+    'edicion_roles',
+    'tipo_libro',
+    'ver_detalle',
+    'descargar_contrato',
+    'aperturar_libros'
+  ],
+  '2': ['ver_detalle', 'descargar_contrato'],
+  '3': ['ver_detalle', 'descargar_contrato'],
+  '4': ['datos_solvencia', 'ver_detalle', 'descargar_contrato'],
+  '5': ['datos_solvencia', 'ver_detalle', 'descargar_contrato'],
+  '6': ['ver_detalle', 'descargar_contrato']
+};
+
+const applyBaseProfileResourceDefaults = (profile: Profile): Profile => {
+  const defaultResourceIds = BASE_PROFILE_RESOURCE_IDS_BY_ID[profile.id];
+  if (!defaultResourceIds) {
+    return {
       ...profile,
       resourceIds: Array.isArray(profile.resourceIds) ? profile.resourceIds : []
-    }));
+    };
+  }
+
+  return {
+    ...profile,
+    resourceIds: [...defaultResourceIds]
+  };
+};
+
+const normalizeProfiles = (input: Profile[]): Profile[] => {
+  const normalizedInput = input.map(profile => ({
+    ...profile,
+    resourceIds: Array.isArray(profile.resourceIds) ? profile.resourceIds : []
+  }));
+  const profileById = new Map(normalizedInput.map(profile => [profile.id, profile]));
+
+  mockProfiles
+    .filter(profile => PROTECTED_PROFILE_IDS.has(profile.id))
+    .forEach(baseProfile => {
+      if (!profileById.has(baseProfile.id)) {
+        profileById.set(baseProfile.id, { ...baseProfile, resourceIds: [] });
+      }
+    });
+
+  return Array.from(profileById.values()).map(applyBaseProfileResourceDefaults);
+};
 
 const loadStoredProfiles = (): Profile[] => {
   try {
@@ -293,6 +368,7 @@ export function PermissionProfiles() {
     name: '',
     description: ''
   });
+  const isProtectedProfile = (profileId: string) => PROTECTED_PROFILE_IDS.has(profileId);
 
   const normalizeRut = (value: string) =>
     value.replace(/[^0-9kK]/g, '').toLowerCase();
@@ -335,6 +411,7 @@ export function PermissionProfiles() {
   };
 
   const togglePermission = (profileId: string, bookId: string, permission: keyof ProfilePermissions) => {
+    if (isProtectedProfile(profileId)) return;
     setProfiles(prev => prev.map(profile =>
       profile.id === profileId
         ? {
@@ -356,10 +433,12 @@ export function PermissionProfiles() {
   };
 
   const deleteProfile = (profileId: string) => {
+    if (isProtectedProfile(profileId)) return;
     setProfiles(prev => prev.filter(profile => profile.id !== profileId));
   };
 
   const duplicateProfile = (profileId: string) => {
+    if (isProtectedProfile(profileId)) return;
     const profileToDuplicate = profiles.find(p => p.id === profileId);
     if (profileToDuplicate) {
       const newProfile = {
@@ -374,6 +453,7 @@ export function PermissionProfiles() {
   };
 
   const toggleAllPermissions = (profileId: string, permissionType: keyof ProfilePermissions) => {
+    if (isProtectedProfile(profileId)) return;
     const profile = profiles.find(p => p.id === profileId);
     if (!profile || profile.bookPermissions.length === 0) return;
 
@@ -439,13 +519,14 @@ export function PermissionProfiles() {
     if (!formData.name.trim()) return;
 
     if (editingProfile) {
+      const isProtectedEditingProfile = isProtectedProfile(editingProfile.id);
       // Edit existing profile
       setProfiles(prev => prev.map(p =>
         p.id === editingProfile.id
           ? {
               ...p,
               name: formData.name,
-              description: formData.description
+              description: isProtectedEditingProfile ? p.description : formData.description
             }
           : p
       ));
@@ -471,6 +552,7 @@ export function PermissionProfiles() {
   };
 
   const openAddBooksModal = (profileId: string, profileName: string) => {
+    if (isProtectedProfile(profileId)) return;
     setAddBooksModal({ profileId, profileName });
     setSelectedBooksToAdd([]);
     setNewBookName('');
@@ -483,6 +565,7 @@ export function PermissionProfiles() {
   };
 
   const openAddResourcesModal = (profileId: string, profileName: string) => {
+    if (isProtectedProfile(profileId)) return;
     setAddResourcesModal({ profileId, profileName });
     setSelectedResourcesToAdd([]);
     const availableResources = getAvailableResourcesForProfile(profileId);
@@ -562,6 +645,7 @@ export function PermissionProfiles() {
 
   const addBooksToProfile = () => {
     if (!addBooksModal || selectedBooksToAdd.length === 0) return;
+    if (isProtectedProfile(addBooksModal.profileId)) return;
 
     const booksToAdd = selectedBooksToAdd.map(bookId => {
       const book = booksCatalog.find(b => b.id === bookId);
@@ -583,6 +667,7 @@ export function PermissionProfiles() {
 
   const addResourcesToProfile = () => {
     if (!addResourcesModal || selectedResourcesToAdd.length === 0) return;
+    if (isProtectedProfile(addResourcesModal.profileId)) return;
 
     setProfiles(prev => prev.map(profile => {
       if (profile.id !== addResourcesModal.profileId) return profile;
@@ -600,6 +685,7 @@ export function PermissionProfiles() {
   };
 
   const removeBookFromProfile = (profileId: string, bookId: string) => {
+    if (isProtectedProfile(profileId)) return;
     setProfiles(prev => prev.map(profile =>
       profile.id === profileId
         ? { ...profile, bookPermissions: profile.bookPermissions.filter(book => book.bookId !== bookId) }
@@ -608,6 +694,7 @@ export function PermissionProfiles() {
   };
 
   const removeResourceFromProfile = (profileId: string, resourceId: string) => {
+    if (isProtectedProfile(profileId)) return;
     setProfiles(prev => prev.map(profile =>
       profile.id === profileId
         ? { ...profile, resourceIds: (profile.resourceIds || []).filter(id => id !== resourceId) }
@@ -649,6 +736,13 @@ export function PermissionProfiles() {
   };
 
   const isReadonlyProfilesView = activeTab === 'profiles_clone';
+  const managedContractProfiles = profiles.filter(profile => !isProtectedProfile(profile.id));
+  const baseSystemProfiles = profiles.filter(profile => isProtectedProfile(profile.id));
+  const visibleProfiles = activeTab === 'profiles'
+    ? managedContractProfiles
+    : activeTab === 'profiles_clone'
+      ? baseSystemProfiles
+      : profiles;
   const resourceCatalogById = new Map(RESOURCE_CATALOG.map(resource => [resource.id, resource]));
 
   return (
@@ -689,7 +783,7 @@ export function PermissionProfiles() {
               }`}
               style={{ fontWeight: 600 }}
             >
-              Administrar perfiles
+              Administrar Perfiles del Contrato
             </button>
             <button
               onClick={() => setActiveTab('profiles_clone')}
@@ -700,7 +794,7 @@ export function PermissionProfiles() {
               }`}
               style={{ fontWeight: 600 }}
             >
-              Ver Perfiles
+              Perfiles del Sistema
             </button>
             <button
               onClick={() => setActiveTab('visualizer')}
@@ -728,7 +822,7 @@ export function PermissionProfiles() {
                 className="bg-white rounded-xl border border-[#e1e4e8] p-6"
               >
                 <div className="text-3xl mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
-                  {profiles.length}
+                  {visibleProfiles.length}
                 </div>
                 <div className="text-sm text-[#6b7280]">
                   Perfiles totales
@@ -742,7 +836,7 @@ export function PermissionProfiles() {
                 className="bg-white rounded-xl border border-[#e1e4e8] p-6"
               >
                 <div className="text-3xl mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
-                  {profiles.reduce((sum, p) => sum + p.usersCount, 0)}
+                  {visibleProfiles.reduce((sum, p) => sum + p.usersCount, 0)}
                 </div>
                 <div className="text-sm text-[#6b7280]">
                   Usuarios asignados
@@ -756,7 +850,7 @@ export function PermissionProfiles() {
                 className="bg-white rounded-xl border border-[#e1e4e8] p-6"
               >
                 <div className="text-3xl mb-1" style={{ fontWeight: 600, color: '#1f2937' }}>
-                  {profiles[0]?.bookPermissions.length || 0}
+                  {visibleProfiles[0]?.bookPermissions.length || 0}
                 </div>
                 <div className="text-sm text-[#6b7280]">
                   Libros gestionados
@@ -766,8 +860,10 @@ export function PermissionProfiles() {
 
             {/* Profiles Cards */}
             <div className="space-y-4">
-              {profiles.map((profile, index) => {
+              {visibleProfiles.map((profile, index) => {
                 const isExpanded = expandedProfiles.includes(profile.id);
+                const isProtected = isProtectedProfile(profile.id);
+                const isProfileReadOnly = isReadonlyProfilesView || isProtected;
                 const profileResources = (profile.resourceIds || [])
                   .map(resourceId => {
                     const resource = resourceCatalogById.get(resourceId);
@@ -842,7 +938,7 @@ export function PermissionProfiles() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-2">
-                        {!isReadonlyProfilesView && (
+                        {!isProfileReadOnly && (
                           <button
                             onClick={() => duplicateProfile(profile.id)}
                             className="p-2 text-[#6b7280] hover:bg-[#f3f4f6] rounded-lg transition-colors"
@@ -858,7 +954,7 @@ export function PermissionProfiles() {
                         >
                           <Edit2 className="w-5 h-5" />
                         </button>
-                        {!isReadonlyProfilesView && (
+                        {!isProfileReadOnly && (
                           <button
                             onClick={() => deleteProfile(profile.id)}
                             className="p-2 text-[#ef4444] hover:bg-[#fee2e2] rounded-lg transition-colors"
@@ -897,7 +993,7 @@ export function PermissionProfiles() {
                                     <ChevronRight className="w-5 h-5 text-[#6b7280]" />
                                   )}
                                 </button>
-                                {!isReadonlyProfilesView ? (
+                                {!isProfileReadOnly ? (
                                   <button
                                     onClick={() => openAddBooksModal(profile.id, profile.name)}
                                     className="ml-3 px-3 py-2 bg-[#3b82f6] text-white rounded-lg hover:bg-[#2563eb] transition-colors flex items-center gap-2 text-sm"
@@ -915,17 +1011,17 @@ export function PermissionProfiles() {
                                 <div className="p-4 border-t border-[#e5e7eb] bg-[#f8f9fb]">
                                   {/* Table Header */}
                                   <div className={`grid gap-6 px-4 py-3 mb-2 bg-[#f8f9fb] rounded-lg ${
-                                    isReadonlyProfilesView ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]'
+                                    isProfileReadOnly ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]'
                                   }`}>
                                     <div className="text-sm" style={{ fontWeight: 600, color: '#374151' }}>
                                       Libro
                                     </div>
                                     <div className="flex flex-col items-center gap-1">
                                       <button
-                                        onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'read')}
-                                        disabled={isReadonlyProfilesView}
+                                        onClick={() => !isProfileReadOnly && toggleAllPermissions(profile.id, 'read')}
+                                        disabled={isProfileReadOnly}
                                         className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
-                                        title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
+                                        title={isProfileReadOnly ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
                                       >
                                         {getPermissionCheckboxState(profile.id, 'read') === 'all' ? (
                                           <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
@@ -941,10 +1037,10 @@ export function PermissionProfiles() {
                                     </div>
                                     <div className="flex flex-col items-center gap-1">
                                       <button
-                                        onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'draft')}
-                                        disabled={isReadonlyProfilesView}
+                                        onClick={() => !isProfileReadOnly && toggleAllPermissions(profile.id, 'draft')}
+                                        disabled={isProfileReadOnly}
                                         className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
-                                        title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
+                                        title={isProfileReadOnly ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
                                       >
                                         {getPermissionCheckboxState(profile.id, 'draft') === 'all' ? (
                                           <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
@@ -960,10 +1056,10 @@ export function PermissionProfiles() {
                                     </div>
                                     <div className="flex flex-col items-center gap-1">
                                       <button
-                                        onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'write')}
-                                        disabled={isReadonlyProfilesView}
+                                        onClick={() => !isProfileReadOnly && toggleAllPermissions(profile.id, 'write')}
+                                        disabled={isProfileReadOnly}
                                         className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
-                                        title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
+                                        title={isProfileReadOnly ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
                                       >
                                         {getPermissionCheckboxState(profile.id, 'write') === 'all' ? (
                                           <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
@@ -979,10 +1075,10 @@ export function PermissionProfiles() {
                                     </div>
                                     <div className="flex flex-col items-center gap-1">
                                       <button
-                                        onClick={() => !isReadonlyProfilesView && toggleAllPermissions(profile.id, 'acknowledge')}
-                                        disabled={isReadonlyProfilesView}
+                                        onClick={() => !isProfileReadOnly && toggleAllPermissions(profile.id, 'acknowledge')}
+                                        disabled={isProfileReadOnly}
                                         className="flex items-center gap-2 hover:bg-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-100 disabled:cursor-default"
-                                        title={isReadonlyProfilesView ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
+                                        title={isProfileReadOnly ? 'Solo lectura' : 'Seleccionar/Deseleccionar todos'}
                                       >
                                         {getPermissionCheckboxState(profile.id, 'acknowledge') === 'all' ? (
                                           <CheckSquare className="w-4 h-4 text-[#4f46e5]" />
@@ -996,7 +1092,7 @@ export function PermissionProfiles() {
                                         </span>
                                       </button>
                                     </div>
-                                    {!isReadonlyProfilesView && (
+                                    {!isProfileReadOnly && (
                                       <div className="text-sm text-center" style={{ fontWeight: 600, color: '#374151' }}>
                                         Acciones
                                       </div>
@@ -1012,7 +1108,7 @@ export function PermissionProfiles() {
                                   animate={{ opacity: 1, x: 0 }}
                                   transition={{ delay: bookIndex * 0.05 }}
                                   className={`grid gap-6 px-4 py-4 bg-white rounded-lg border border-[#e1e4e8] items-center ${
-                                    isReadonlyProfilesView ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]'
+                                    isProfileReadOnly ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]'
                                   }`}
                                 >
                                   <div style={{ fontWeight: 500, color: '#1f2937' }}>
@@ -1021,8 +1117,8 @@ export function PermissionProfiles() {
 
                                   <div className="flex justify-center">
                                     <button
-                                      onClick={() => !isReadonlyProfilesView && togglePermission(profile.id, book.bookId, 'read')}
-                                      disabled={isReadonlyProfilesView}
+                                      onClick={() => !isProfileReadOnly && togglePermission(profile.id, book.bookId, 'read')}
+                                      disabled={isProfileReadOnly}
                                       className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all disabled:opacity-100 disabled:cursor-default ${book.permissions.read ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
                                     >
                                       {book.permissions.read ? (
@@ -1035,8 +1131,8 @@ export function PermissionProfiles() {
 
                                   <div className="flex justify-center">
                                     <button
-                                      onClick={() => !isReadonlyProfilesView && togglePermission(profile.id, book.bookId, 'draft')}
-                                      disabled={isReadonlyProfilesView}
+                                      onClick={() => !isProfileReadOnly && togglePermission(profile.id, book.bookId, 'draft')}
+                                      disabled={isProfileReadOnly}
                                       className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all disabled:opacity-100 disabled:cursor-default ${book.permissions.draft ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
                                     >
                                       {book.permissions.draft ? (
@@ -1049,8 +1145,8 @@ export function PermissionProfiles() {
 
                                   <div className="flex justify-center">
                                     <button
-                                      onClick={() => !isReadonlyProfilesView && togglePermission(profile.id, book.bookId, 'write')}
-                                      disabled={isReadonlyProfilesView}
+                                      onClick={() => !isProfileReadOnly && togglePermission(profile.id, book.bookId, 'write')}
+                                      disabled={isProfileReadOnly}
                                       className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all disabled:opacity-100 disabled:cursor-default ${book.permissions.write ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
                                     >
                                       {book.permissions.write ? (
@@ -1063,8 +1159,8 @@ export function PermissionProfiles() {
 
                                   <div className="flex justify-center">
                                     <button
-                                      onClick={() => !isReadonlyProfilesView && togglePermission(profile.id, book.bookId, 'acknowledge')}
-                                      disabled={isReadonlyProfilesView}
+                                      onClick={() => !isProfileReadOnly && togglePermission(profile.id, book.bookId, 'acknowledge')}
+                                      disabled={isProfileReadOnly}
                                       className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all disabled:opacity-100 disabled:cursor-default ${book.permissions.acknowledge ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#f3f4f6] text-[#9ca3af]'}`}
                                     >
                                       {book.permissions.acknowledge ? (
@@ -1075,7 +1171,7 @@ export function PermissionProfiles() {
                                     </button>
                                   </div>
 
-                                  {!isReadonlyProfilesView && (
+                                  {!isProfileReadOnly && (
                                     <div className="flex justify-center">
                                       <button
                                         onClick={() => removeBookFromProfile(profile.id, book.bookId)}
@@ -1109,7 +1205,7 @@ export function PermissionProfiles() {
                                     <ChevronRight className="w-5 h-5 text-[#6b7280]" />
                                   )}
                                 </button>
-                                {!isReadonlyProfilesView && (
+                                {!isProfileReadOnly && (
                                   <button
                                     onClick={() => openAddResourcesModal(profile.id, profile.name)}
                                     className="ml-3 px-3 py-2 bg-[#0ea5e9] text-white rounded-lg hover:bg-[#0284c7] transition-colors flex items-center gap-2 text-sm"
@@ -1165,7 +1261,7 @@ export function PermissionProfiles() {
                                               >
                                                 <div style={{ color: '#0f172a' }}>{resource.name}</div>
                                                 <div className="flex justify-center">
-                                                  {!isReadonlyProfilesView && (
+                                                  {!isProfileReadOnly && (
                                                     <button
                                                       type="button"
                                                       onClick={() => removeResourceFromProfile(profile.id, resource.resourceId)}
@@ -1676,6 +1772,11 @@ export function PermissionProfiles() {
 
               {/* Form */}
               <div className="space-y-6 mb-6">
+                {editingProfile && isProtectedProfile(editingProfile.id) && (
+                  <div className="p-3 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] text-sm text-[#1d4ed8]">
+                    Este perfil está protegido: solo puedes editar su nombre.
+                  </div>
+                )}
                 {/* Name */}
                 <div>
                   <label className="block text-sm mb-2" style={{ fontWeight: 600, color: '#374151' }}>
@@ -1700,7 +1801,8 @@ export function PermissionProfiles() {
                     onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                     placeholder="Describe los permisos y el alcance de este perfil"
                     rows={3}
-                    className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent resize-none"
+                    disabled={!!editingProfile && isProtectedProfile(editingProfile.id)}
+                    className="w-full px-4 py-3 bg-white border border-[#d1d5db] rounded-lg text-[#1f2937] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:border-transparent resize-none disabled:bg-[#f8fafc] disabled:text-[#94a3b8] disabled:cursor-not-allowed"
                   />
                 </div>
 
